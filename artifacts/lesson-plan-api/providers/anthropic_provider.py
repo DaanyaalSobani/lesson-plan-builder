@@ -12,7 +12,7 @@ class AnthropicProvider(LLMProvider):
     """
 
     DEFAULT_MODEL = "claude-sonnet-4-6"
-    DEFAULT_MAX_TOKENS = 2048
+    DEFAULT_MAX_TOKENS = 8192
 
     def __init__(self, model: str | None = None):
         api_key = os.environ.get("ANTHROPIC_API_KEY")
