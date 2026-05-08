@@ -26,7 +26,7 @@ def client(monkeypatch):
     import main
     main._llm_provider = None  # type: ignore[attr-defined]
     importlib.reload(main)
-    return TestClient(main.app)
+    return TestClient(main.api_app)
 
 
 def _post_generate(client: TestClient, **overrides):
@@ -194,7 +194,7 @@ def test_mock_provider_works_without_anthropic_key(monkeypatch):
     import main
     main._llm_provider = None  # type: ignore[attr-defined]
     importlib.reload(main)
-    c = TestClient(main.app)
+    c = TestClient(main.api_app)
 
     resp = _post_generate(c)
     assert resp.status_code == 200, resp.text

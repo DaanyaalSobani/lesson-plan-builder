@@ -1,0 +1,27 @@
+kind = "api"
+previewPath = "/lesson-api"
+title = "Lesson Plan API"
+version = "1.0.0"
+id = "lesson-plan-api"
+
+[[services]]
+localPort = 8000
+name = "Python Backend"
+paths = ["/lesson-api"]
+
+[services.development]
+run = "cd artifacts/lesson-plan-api && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+
+[services.production]
+
+[services.production.build]
+args = ["pip", "install", "-r", "artifacts/lesson-plan-api/requirements.txt"]
+
+[services.production.run]
+args = ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--app-dir", "artifacts/lesson-plan-api"]
+
+[services.production.run.env]
+PORT = "8000"
+
+[services.production.health.startup]
+path = "/lesson-api/healthz"

@@ -70,7 +70,6 @@ export default defineConfig({
       "/lesson-api": {
         target: "http://localhost:8000",
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/lesson-api/, ""),
       },
     },
   },

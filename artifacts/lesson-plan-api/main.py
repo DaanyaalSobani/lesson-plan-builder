@@ -40,14 +40,30 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
 
-app = FastAPI(title="Lesson Plan Generator", version="0.1.0")
+api_app = FastAPI(title="Lesson Plan Generator", version="0.1.0")
 
-app.add_middleware(
+api_app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Outer app: mounts the real API under /lesson-api so the workspace's
+# path-based router (which forwards prefixes as-is, without stripping)
+# delivers requests to FastAPI with the correct paths in both dev and prod.
+app = FastAPI()
+app.mount("/lesson-api", api_app)
+
+
+@app.on_event("startup")
+async def _trigger_subapp_startup():
+    # Sub-app lifespans don't fire automatically when mounted, so explicitly
+    # run the inner app's startup hooks (DB init + seeding).
+    for handler in api_app.router.on_startup:
+        result = handler()
+        if hasattr(result, "__await__"):
+            await result
 
 _llm_provider: LLMProvider | None = None
 
@@ -85,7 +101,7 @@ def get_llm_provider() -> LLMProvider:
 CITATION_MARKER_PATTERN = re.compile(r"\[([A-Z][A-Z0-9.\-]*\d[A-Z0-9.\-]*)\]")
 
 
-@app.on_event("startup")
+@api_app.on_event("startup")
 async def startup_event():
     init_db()
     if is_empty():
@@ -170,12 +186,12 @@ class UpdatePlanRequest(BaseModel):
     title: str | None = None
 
 
-@app.get("/healthz")
+@api_app.get("/healthz")
 async def health():
     return {"status": "ok"}
 
 
-@app.post("/generate", response_model=GenerateResponse)
+@api_app.post("/generate", response_model=GenerateResponse)
 async def generate_lesson_plan(req: GenerateRequest):
     if not req.subject.strip() or not req.grade.strip() or not req.teacher_request.strip():
         raise HTTPException(status_code=422, detail="subject, grade, and teacher_request are required.")
@@ -268,7 +284,7 @@ async def generate_lesson_plan(req: GenerateRequest):
     )
 
 
-@app.get("/history", response_model=HistoryResponse)
+@api_app.get("/history", response_model=HistoryResponse)
 async def history(limit: int = 50):
     limit = max(1, min(limit, 200))
     rows = list_lesson_plans(limit=limit)
@@ -286,7 +302,7 @@ async def history(limit: int = 50):
     return HistoryResponse(plans=summaries)
 
 
-@app.get("/history/{plan_id}", response_model=LessonPlanDetail)
+@api_app.get("/history/{plan_id}", response_model=LessonPlanDetail)
 async def history_detail(plan_id: int):
     row = get_lesson_plan(plan_id)
     if not row:
@@ -294,14 +310,14 @@ async def history_detail(plan_id: int):
     return LessonPlanDetail(**row)
 
 
-@app.delete("/history/{plan_id}")
+@api_app.delete("/history/{plan_id}")
 async def history_delete(plan_id: int):
     if not delete_lesson_plan(plan_id):
         raise HTTPException(status_code=404, detail="Lesson plan not found.")
     return {"status": "deleted", "id": plan_id}
 
 
-@app.patch("/history/{plan_id}", response_model=LessonPlanDetail)
+@api_app.patch("/history/{plan_id}", response_model=LessonPlanDetail)
 async def history_update(plan_id: int, req: UpdatePlanRequest):
     if req.title is not None and len(req.title) > 200:
         raise HTTPException(status_code=422, detail="Title must be 200 characters or fewer.")
@@ -378,7 +394,7 @@ class CurriculumStandardsResponse(BaseModel):
     standards: list[CurriculumStandard]
 
 
-@app.get("/curriculum/summary", response_model=CurriculumSummaryResponse)
+@api_app.get("/curriculum/summary", response_model=CurriculumSummaryResponse)
 async def curriculum_summary_endpoint():
     """Per-(subject, grade) breakdown plus overall totals — drives the
     Curriculum Library page and the data-driven dropdowns on the Generate form."""
@@ -426,7 +442,7 @@ async def curriculum_summary_endpoint():
     return CurriculumSummaryResponse(buckets=buckets, totals=totals)
 
 
-@app.get("/curriculum/pdf/{filename}")
+@api_app.get("/curriculum/pdf/{filename}")
 async def curriculum_pdf(filename: str):
     """Serve a source curriculum PDF from curriculum_pdfs/ for download.
 
@@ -445,7 +461,7 @@ async def curriculum_pdf(filename: str):
     return FileResponse(path, media_type="application/pdf", filename=filename)
 
 
-@app.get("/curriculum/standards", response_model=CurriculumStandardsResponse)
+@api_app.get("/curriculum/standards", response_model=CurriculumStandardsResponse)
 async def curriculum_standards_endpoint(subject: str, grade: str):
     """Every standard for a (subject, grade) — used to populate the
     expandable detail tables in the Curriculum Library."""
