@@ -65,33 +65,60 @@ async def _trigger_subapp_startup():
         if hasattr(result, "__await__"):
             await result
 
-_llm_provider: LLMProvider | None = None
+# Catalogue of providers the user can choose from on the generate form.
+# Order here is the order the dropdown renders.
+PROVIDER_CATALOGUE: list[dict] = [
+    {
+        "key": "anthropic",
+        "label": "Claude (Anthropic)",
+        "description": "Anthropic Claude — uses your ANTHROPIC_API_KEY.",
+    },
+    {
+        "key": "openai",
+        "label": "GPT (OpenAI, managed)",
+        "description": "OpenAI via Replit AI Integrations — no API key needed, billed to Replit credits.",
+    },
+    {
+        "key": "mock",
+        "label": "Mock (offline)",
+        "description": "Deterministic offline provider — free, no network calls.",
+    },
+]
+SUPPORTED_PROVIDERS: set[str] = {p["key"] for p in PROVIDER_CATALOGUE}
+
+# Cache one instance per provider key so we don't rebuild SDK clients per request.
+_llm_providers: dict[str, LLMProvider] = {}
 
 
-def _create_provider() -> LLMProvider:
-    """
-    Factory that selects the concrete LLM provider from the PROVIDER env var.
-    Defaults to 'anthropic'. To add a new provider, create providers/<name>_provider.py
-    and add a branch here — no other file needs changing.
-    """
-    provider_name = os.getenv("PROVIDER", "anthropic").lower()
+def _build_provider(provider_name: str) -> LLMProvider:
     if provider_name == "anthropic":
         from providers.anthropic_provider import AnthropicProvider
         return AnthropicProvider()
+    if provider_name == "openai":
+        from providers.openai_provider import OpenAIProvider
+        return OpenAIProvider()
     if provider_name == "mock":
-        # Deterministic, offline provider — no API key required. Used for tests
-        # and for running the app locally without an Anthropic key.
+        # Deterministic, offline provider — no API key required.
         from providers.mock_provider import MockProvider
         return MockProvider()
-    raise ValueError(f"Unknown provider: {provider_name!r}. Set PROVIDER env var to a supported value.")
+    raise ValueError(f"Unknown provider: {provider_name!r}.")
 
 
-def get_llm_provider() -> LLMProvider:
-    """Lazy-initialise the provider so the server starts even before the API key is set."""
-    global _llm_provider
-    if _llm_provider is None:
-        _llm_provider = _create_provider()
-    return _llm_provider
+def default_provider_name() -> str:
+    name = os.getenv("PROVIDER", "anthropic").lower()
+    return name if name in SUPPORTED_PROVIDERS else "anthropic"
+
+
+def get_llm_provider(provider_name: str | None = None) -> LLMProvider:
+    """Return a cached provider instance for ``provider_name`` (or the env default)."""
+    name = (provider_name or default_provider_name()).lower()
+    if name not in SUPPORTED_PROVIDERS:
+        raise ValueError(
+            f"Unknown provider: {name!r}. Supported: {sorted(SUPPORTED_PROVIDERS)}."
+        )
+    if name not in _llm_providers:
+        _llm_providers[name] = _build_provider(name)
+    return _llm_providers[name]
 
 
 # Matches `[CODE]` markers where CODE looks like a standards code:
@@ -123,6 +150,7 @@ class GenerateRequest(BaseModel):
     grade: str
     teacher_request: str
     selected_standard_codes: list[str] | None = None
+    provider: str | None = None  # one of PROVIDER_CATALOGUE keys; None = env default
 
 
 class Citation(BaseModel):
@@ -191,6 +219,25 @@ async def health():
     return {"status": "ok"}
 
 
+class ProviderOption(BaseModel):
+    key: str
+    label: str
+    description: str
+
+
+class ProvidersResponse(BaseModel):
+    providers: list[ProviderOption]
+    default: str
+
+
+@api_app.get("/providers", response_model=ProvidersResponse)
+async def list_providers():
+    return ProvidersResponse(
+        providers=[ProviderOption(**p) for p in PROVIDER_CATALOGUE],
+        default=default_provider_name(),
+    )
+
+
 @api_app.post("/generate", response_model=GenerateResponse)
 async def generate_lesson_plan(req: GenerateRequest):
     if not req.subject.strip() or not req.grade.strip() or not req.teacher_request.strip():
@@ -232,8 +279,14 @@ async def generate_lesson_plan(req: GenerateRequest):
         curriculum_rows=curriculum_rows,
     )
 
+    requested_provider = (req.provider or "").strip().lower() or None
+    if requested_provider and requested_provider not in SUPPORTED_PROVIDERS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown provider {requested_provider!r}. Supported: {sorted(SUPPORTED_PROVIDERS)}.",
+        )
     try:
-        provider = get_llm_provider()
+        provider = get_llm_provider(requested_provider)
     except EnvironmentError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
@@ -270,6 +323,7 @@ async def generate_lesson_plan(req: GenerateRequest):
         standards_were_narrowed=standards_were_narrowed,
         system_prompt=provider_request.system_prompt,
         user_prompt=provider_request.user_prompt,
+        provider_name=provider_request.provider,
         provider_model=provider_request.model,
         provider_max_tokens=provider_request.max_tokens,
     )

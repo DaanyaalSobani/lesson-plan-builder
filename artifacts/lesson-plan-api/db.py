@@ -77,6 +77,8 @@ def init_db() -> None:
             conn.execute("ALTER TABLE lesson_plans ADD COLUMN considered_standards TEXT")
         if "title" not in plan_cols:
             conn.execute("ALTER TABLE lesson_plans ADD COLUMN title TEXT")
+        if "provider_name" not in plan_cols:
+            conn.execute("ALTER TABLE lesson_plans ADD COLUMN provider_name TEXT")
         curr_cols = {row["name"] for row in conn.execute(
             "PRAGMA table_info(curriculum)"
         ).fetchall()}
@@ -133,6 +135,7 @@ def save_lesson_plan(
     standards_were_narrowed: bool = False,
     system_prompt: str | None = None,
     user_prompt: str | None = None,
+    provider_name: str | None = None,
     provider_model: str | None = None,
     provider_max_tokens: int | None = None,
 ) -> int:
@@ -145,12 +148,14 @@ def save_lesson_plan(
             """
             INSERT INTO lesson_plans (subject, grade, teacher_request, lesson_plan,
                                       citations, considered_standards, standards_were_narrowed,
-                                      system_prompt, user_prompt, provider_model, provider_max_tokens)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                      system_prompt, user_prompt,
+                                      provider_name, provider_model, provider_max_tokens)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (subject, grade, teacher_request, lesson_plan, citations_json, considered_json,
              1 if standards_were_narrowed else 0,
-             system_prompt, user_prompt, provider_model, provider_max_tokens),
+             system_prompt, user_prompt,
+             provider_name, provider_model, provider_max_tokens),
         )
         conn.commit()
         return int(cur.lastrowid)
@@ -176,7 +181,8 @@ def get_lesson_plan(plan_id: int) -> dict | None:
             """
             SELECT id, subject, grade, teacher_request, lesson_plan, citations,
                    considered_standards, title, standards_were_narrowed,
-                   system_prompt, user_prompt, provider_model, provider_max_tokens,
+                   system_prompt, user_prompt,
+                   provider_name, provider_model, provider_max_tokens,
                    created_at
             FROM lesson_plans
             WHERE id = ?
@@ -203,13 +209,24 @@ def get_lesson_plan(plan_id: int) -> dict | None:
         # object so the API response matches the GenerateResponse shape.
         system_prompt = result.pop("system_prompt", None)
         user_prompt = result.pop("user_prompt", None)
+        provider_name = result.pop("provider_name", None)
         provider_model = result.pop("provider_model", None)
         provider_max_tokens = result.pop("provider_max_tokens", None)
         if system_prompt and user_prompt:
+            # Prefer the persisted provider_name (set since migration 003).
+            # Older rows have it as NULL; infer from the model string for those.
+            if provider_name:
+                resolved_provider = provider_name
+            else:
+                model_str = (provider_model or "").lower()
+                if model_str.startswith("mock"):
+                    resolved_provider = "mock"
+                elif model_str.startswith(("gpt", "o1", "o3")):
+                    resolved_provider = "openai"
+                else:
+                    resolved_provider = "anthropic"
             result["provider_request"] = {
-                # Older rows pre-date the provider name column; infer from the
-                # model string when possible, otherwise fall back to "unknown".
-                "provider": "mock" if (provider_model or "").startswith("mock") else "anthropic",
+                "provider": resolved_provider,
                 "model": provider_model,
                 "max_tokens": provider_max_tokens,
                 "system_prompt": system_prompt,

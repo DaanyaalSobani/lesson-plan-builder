@@ -78,7 +78,19 @@ const formSchema = z.object({
   subject: z.string().min(1, "Please select a subject."),
   grade: z.string().min(1, "Please select a grade."),
   teacher_request: z.string().min(10, "Please provide a bit more detail for the lesson request."),
+  provider: z.string().min(1, "Please choose a model."),
 });
+
+type ProviderOption = {
+  key: string;
+  label: string;
+  description: string;
+};
+
+type ProvidersResponse = {
+  providers: ProviderOption[];
+  default: string;
+};
 
 type FormValues = z.infer<typeof formSchema>;
 
@@ -449,14 +461,24 @@ function ProviderRequestPanel({ request }: { request: ProviderRequest | null }) 
     return null;
   }
 
-  // Mirror the actual Anthropic Messages API payload shape so what the teacher
-  // sees here is the same JSON the backend sent over the wire.
-  const payload = {
-    model: request.model ?? null,
-    max_tokens: request.max_tokens ?? null,
-    system: request.system_prompt,
-    messages: [{ role: "user", content: request.user_prompt }],
-  };
+  // Mirror the wire-format payload shape per provider so what the teacher
+  // sees here matches what the backend actually sent.
+  const payload =
+    request.provider === "openai"
+      ? {
+          model: request.model ?? null,
+          max_completion_tokens: request.max_tokens ?? null,
+          messages: [
+            { role: "system", content: request.system_prompt },
+            { role: "user", content: request.user_prompt },
+          ],
+        }
+      : {
+          model: request.model ?? null,
+          max_tokens: request.max_tokens ?? null,
+          system: request.system_prompt,
+          messages: [{ role: "user", content: request.user_prompt }],
+        };
   const payloadJson = JSON.stringify(payload, null, 2);
 
   const handleCopy = async () => {
@@ -588,8 +610,33 @@ export default function Home() {
       subject: "",
       grade: "",
       teacher_request: "",
+      provider: "",
     },
   });
+
+  const providersQuery = useQuery({
+    queryKey: ["providers"],
+    queryFn: async (): Promise<ProvidersResponse> => {
+      const res = await fetch("/lesson-api/providers");
+      if (!res.ok) throw new Error("Failed to load model providers");
+      return res.json();
+    },
+  });
+
+  // Once the catalogue loads, default the form to the server's default
+  // provider (so existing PROVIDER env-var behaviour is preserved).
+  useEffect(() => {
+    if (providersQuery.data && !form.getValues("provider")) {
+      form.setValue("provider", providersQuery.data.default);
+    }
+  }, [providersQuery.data, form]);
+
+  const selectedProviderKey = form.watch("provider");
+  const selectedProviderOption = useMemo(
+    () =>
+      providersQuery.data?.providers.find((p) => p.key === selectedProviderKey) ?? null,
+    [providersQuery.data, selectedProviderKey],
+  );
 
   const summaryQuery = useQuery({
     queryKey: ["curriculum-summary"],
@@ -672,6 +719,8 @@ export default function Home() {
       if (selectedStandardCodes.length > 0) {
         body.selected_standard_codes = selectedStandardCodes;
       }
+      // Server treats empty/missing provider as "use default", but we
+      // already track the default from the catalogue, so always send it.
       const res = await fetch("/lesson-api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1239,13 +1288,13 @@ export default function Home() {
                     {standardsCount === 0 ? (
                       <span className="inline-flex items-center gap-1.5">
                         <AlertTriangle className="w-3.5 h-3.5" />
-                        No standards loaded for {selectedSubject} · Grade {selectedGrade}. Claude
+                        No standards loaded for {selectedSubject} · Grade {selectedGrade}. The model
                         will generate without curriculum grounding.
                       </span>
                     ) : (
                       <>
                         <span className="font-medium text-foreground">{standardsCount}</span>{" "}
-                        {standardsCount === 1 ? "standard" : "standards"} will be sent to Claude
+                        {standardsCount === 1 ? "standard" : "standards"} will be sent to the model
                         for {selectedSubject} · Grade {selectedGrade}.{" "}
                         <Link
                           href="/curriculum"
@@ -1383,6 +1432,56 @@ export default function Home() {
                     </CardContent>
                   </Card>
                 )}
+
+                <FormField
+                  control={form.control}
+                  name="provider"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Model</FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value}
+                        disabled={providersQuery.isLoading || !providersQuery.data}
+                      >
+                        <FormControl>
+                          <SelectTrigger
+                            data-testid="select-provider"
+                            className="bg-background"
+                          >
+                            <SelectValue
+                              placeholder={
+                                providersQuery.isLoading
+                                  ? "Loading models…"
+                                  : "Select model..."
+                              }
+                            />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {providersQuery.data?.providers.map((p) => (
+                            <SelectItem
+                              key={p.key}
+                              value={p.key}
+                              data-testid={`option-provider-${p.key}`}
+                            >
+                              {p.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {selectedProviderOption && (
+                        <p
+                          className="text-xs text-muted-foreground mt-1.5"
+                          data-testid="text-provider-description"
+                        >
+                          {selectedProviderOption.description}
+                        </p>
+                      )}
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
                 <FormField
                   control={form.control}
