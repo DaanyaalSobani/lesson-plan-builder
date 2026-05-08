@@ -100,6 +100,7 @@ class GenerateRequest(BaseModel):
     subject: str
     grade: str
     teacher_request: str
+    selected_standard_codes: list[str] | None = None
 
 
 class Citation(BaseModel):
@@ -158,6 +159,25 @@ async def generate_lesson_plan(req: GenerateRequest):
     curriculum_rows = get_curriculum(req.subject, req.grade)
     if not curriculum_rows:
         log.warning(f"No curriculum rows found for subject={req.subject!r} grade={req.grade!r}")
+
+    # If the teacher narrowed the focus to a subset of standards on the form,
+    # restrict the curriculum sent to the model to just those codes. Unknown
+    # codes (not in the retrieved set for this subject+grade) are ignored.
+    if req.selected_standard_codes:
+        wanted = {c.strip() for c in req.selected_standard_codes if c and c.strip()}
+        if wanted:
+            filtered = [r for r in curriculum_rows if r["standard_code"] in wanted]
+            if filtered:
+                log.info(
+                    f"Teacher narrowed standards: {len(filtered)}/{len(curriculum_rows)} "
+                    f"selected for subject={req.subject!r} grade={req.grade!r}"
+                )
+                curriculum_rows = filtered
+            else:
+                log.warning(
+                    f"selected_standard_codes={sorted(wanted)!r} matched no rows for "
+                    f"subject={req.subject!r} grade={req.grade!r}; falling back to full set."
+                )
 
     system_prompt, user_prompt = build_prompt(
         subject=req.subject,

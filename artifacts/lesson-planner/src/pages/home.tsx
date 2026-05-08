@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -62,6 +62,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -114,6 +115,12 @@ type GenerateResponse = {
   lesson_plan: string;
   citations: Citation[];
   considered_standards: ConsideredStandard[];
+};
+
+type CurriculumStandard = {
+  standard_code: string;
+  strand?: string | null;
+  description: string;
 };
 
 type CurriculumBucket = {
@@ -469,12 +476,51 @@ export default function Home() {
     return bucket ? bucket.count : 0;
   }, [summaryQuery.data, selectedSubject, selectedGrade]);
 
+  const [pickStandardsOpen, setPickStandardsOpen] = useState(false);
+  const [selectedStandardCodes, setSelectedStandardCodes] = useState<string[]>([]);
+
+  // Reset the picker whenever the (subject, grade) combo changes — the
+  // previous selection is meaningless against a new bucket of standards.
+  useEffect(() => {
+    setSelectedStandardCodes([]);
+    setPickStandardsOpen(false);
+  }, [selectedSubject, selectedGrade]);
+
+  const standardsListQuery = useQuery({
+    queryKey: ["curriculum-standards", selectedSubject, selectedGrade],
+    queryFn: async (): Promise<CurriculumStandard[]> => {
+      const params = new URLSearchParams({
+        subject: selectedSubject,
+        grade: selectedGrade,
+      });
+      const res = await fetch(`/lesson-api/curriculum/standards?${params.toString()}`);
+      if (!res.ok) throw new Error("Failed to load standards");
+      const json = await res.json();
+      return (json.standards ?? []) as CurriculumStandard[];
+    },
+    enabled:
+      pickStandardsOpen &&
+      Boolean(selectedSubject) &&
+      Boolean(selectedGrade) &&
+      (standardsCount ?? 0) > 0,
+  });
+
+  const toggleStandard = (code: string) => {
+    setSelectedStandardCodes((curr) =>
+      curr.includes(code) ? curr.filter((c) => c !== code) : [...curr, code],
+    );
+  };
+
   const generateMutation = useMutation({
     mutationFn: async (data: FormValues): Promise<GenerateResponse> => {
+      const body: FormValues & { selected_standard_codes?: string[] } = { ...data };
+      if (selectedStandardCodes.length > 0) {
+        body.selected_standard_codes = selectedStandardCodes;
+      }
       const res = await fetch("/lesson-api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error((await res.text()) || "Failed to generate lesson plan");
       return res.json();
@@ -1052,6 +1098,131 @@ export default function Home() {
                       </>
                     )}
                   </div>
+                )}
+
+                {selectedSubject && selectedGrade && (standardsCount ?? 0) > 0 && (
+                  <Card className="bg-card/50 border-border/50" data-testid="panel-pick-standards">
+                    <CardContent className="p-4 md:p-5">
+                      <button
+                        type="button"
+                        onClick={() => setPickStandardsOpen((v) => !v)}
+                        aria-expanded={pickStandardsOpen}
+                        data-testid="button-toggle-pick-standards"
+                        className="w-full flex items-center justify-between gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md"
+                      >
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-medium text-foreground">
+                            Choose standards{" "}
+                            <span className="font-normal text-muted-foreground">(optional)</span>
+                          </span>
+                          {selectedStandardCodes.length > 0 ? (
+                            <Badge variant="secondary" className="text-[10px]">
+                              {selectedStandardCodes.length} selected
+                            </Badge>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              All {standardsCount} will be sent
+                            </span>
+                          )}
+                        </div>
+                        <ChevronDown
+                          className={cn(
+                            "w-4 h-4 text-muted-foreground transition-transform shrink-0",
+                            pickStandardsOpen && "rotate-180",
+                          )}
+                        />
+                      </button>
+
+                      {pickStandardsOpen && (
+                        <div className="mt-4 space-y-3">
+                          <p className="text-xs text-muted-foreground">
+                            Tick the standards this lesson should focus on. If you leave them all
+                            unchecked, every standard for {selectedSubject} · Grade {selectedGrade}{" "}
+                            is sent — same as before.
+                          </p>
+
+                          {standardsListQuery.isLoading && (
+                            <div className="flex items-center text-sm text-muted-foreground py-4">
+                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              Loading standards…
+                            </div>
+                          )}
+
+                          {standardsListQuery.isError && (
+                            <Alert variant="destructive">
+                              <AlertCircle className="h-4 w-4" />
+                              <AlertDescription>
+                                Couldn't load standards. You can still generate — all standards will
+                                be used.
+                              </AlertDescription>
+                            </Alert>
+                          )}
+
+                          {standardsListQuery.data && standardsListQuery.data.length > 0 && (
+                            <>
+                              <div className="flex items-center gap-2 text-xs">
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedStandardCodes([])}
+                                  disabled={selectedStandardCodes.length === 0}
+                                  data-testid="button-clear-standards"
+                                  className="underline text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:no-underline disabled:cursor-default"
+                                >
+                                  Clear selection
+                                </button>
+                              </div>
+                              <ScrollArea className="max-h-72 pr-3 -mr-3">
+                                <ul className="space-y-1.5">
+                                  {standardsListQuery.data.map((s) => {
+                                    const checked = selectedStandardCodes.includes(s.standard_code);
+                                    return (
+                                      <li
+                                        key={s.standard_code}
+                                        data-testid={`pick-row-${s.standard_code}`}
+                                      >
+                                        <label
+                                          className={cn(
+                                            "flex gap-3 items-start rounded-md border p-2.5 cursor-pointer transition-colors",
+                                            checked
+                                              ? "border-primary/40 bg-primary/5"
+                                              : "border-border/60 bg-background/40 hover:border-border",
+                                          )}
+                                        >
+                                          <Checkbox
+                                            checked={checked}
+                                            onCheckedChange={() =>
+                                              toggleStandard(s.standard_code)
+                                            }
+                                            data-testid={`pick-checkbox-${s.standard_code}`}
+                                            className="mt-0.5"
+                                          />
+                                          <div className="min-w-0 flex-1">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                              <span className="font-mono text-xs text-foreground">
+                                                {s.standard_code}
+                                              </span>
+                                              {s.strand && (
+                                                <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                                                  {s.strand}
+                                                </span>
+                                              )}
+                                            </div>
+                                            <p className="text-sm text-foreground leading-snug mt-0.5">
+                                              {s.description}
+                                            </p>
+                                          </div>
+                                        </label>
+                                      </li>
+                                    );
+                                  })}
+                                </ul>
+                              </ScrollArea>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
                 )}
 
                 <FormField
