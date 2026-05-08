@@ -73,6 +73,8 @@ def init_db() -> None:
         ).fetchall()}
         if "citations" not in plan_cols:
             conn.execute("ALTER TABLE lesson_plans ADD COLUMN citations TEXT")
+        if "considered_standards" not in plan_cols:
+            conn.execute("ALTER TABLE lesson_plans ADD COLUMN considered_standards TEXT")
         if "title" not in plan_cols:
             conn.execute("ALTER TABLE lesson_plans ADD COLUMN title TEXT")
         curr_cols = {row["name"] for row in conn.execute(
@@ -127,15 +129,19 @@ def save_lesson_plan(
     teacher_request: str,
     lesson_plan: str,
     citations: list[dict] | None = None,
+    considered_standards: list[dict] | None = None,
 ) -> int:
     citations_json = json.dumps(citations) if citations is not None else None
+    considered_json = (
+        json.dumps(considered_standards) if considered_standards is not None else None
+    )
     with get_connection() as conn:
         cur = conn.execute(
             """
-            INSERT INTO lesson_plans (subject, grade, teacher_request, lesson_plan, citations)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO lesson_plans (subject, grade, teacher_request, lesson_plan, citations, considered_standards)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (subject, grade, teacher_request, lesson_plan, citations_json),
+            (subject, grade, teacher_request, lesson_plan, citations_json, considered_json),
         )
         conn.commit()
         return int(cur.lastrowid)
@@ -159,7 +165,8 @@ def get_lesson_plan(plan_id: int) -> dict | None:
     with get_connection() as conn:
         row = conn.execute(
             """
-            SELECT id, subject, grade, teacher_request, lesson_plan, citations, title, created_at
+            SELECT id, subject, grade, teacher_request, lesson_plan, citations,
+                   considered_standards, title, created_at
             FROM lesson_plans
             WHERE id = ?
             """,
@@ -173,6 +180,13 @@ def get_lesson_plan(plan_id: int) -> dict | None:
             result["citations"] = json.loads(raw) if raw else []
         except (ValueError, TypeError):
             result["citations"] = []
+        raw_considered = result.pop("considered_standards", None)
+        try:
+            result["considered_standards"] = (
+                json.loads(raw_considered) if raw_considered else []
+            )
+        except (ValueError, TypeError):
+            result["considered_standards"] = []
         return result
 
 

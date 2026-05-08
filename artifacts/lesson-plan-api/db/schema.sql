@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS lesson_plans (
     teacher_request  TEXT NOT NULL,
     lesson_plan      TEXT NOT NULL,
     citations        TEXT,
+    considered_standards TEXT,
     title            TEXT,
     created_at       TEXT NOT NULL DEFAULT (datetime('now'))
 );

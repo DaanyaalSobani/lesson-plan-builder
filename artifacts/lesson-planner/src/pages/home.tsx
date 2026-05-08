@@ -21,6 +21,7 @@ import {
   Trash2,
   X,
   Database,
+  ChevronDown,
 } from "lucide-react";
 
 import {
@@ -95,15 +96,24 @@ type Citation = {
   found_in_curriculum: boolean;
 };
 
+type ConsideredStandard = {
+  code: string;
+  strand?: string | null;
+  description: string;
+  cited: boolean;
+};
+
 type LessonPlanDetail = LessonPlanSummary & {
   lesson_plan: string;
   citations?: Citation[];
+  considered_standards?: ConsideredStandard[];
 };
 
 type GenerateResponse = {
   id: number;
   lesson_plan: string;
   citations: Citation[];
+  considered_standards: ConsideredStandard[];
 };
 
 type CurriculumBucket = {
@@ -133,6 +143,7 @@ type DisplayedPlan = {
   teacher_request: string;
   lesson_plan: string;
   citations: Citation[];
+  considered_standards: ConsideredStandard[];
   title?: string | null;
   created_at?: string;
 };
@@ -283,6 +294,119 @@ function CitationsPanel({
   );
 }
 
+function ConsideredStandardsPanel({
+  standards,
+  onJumpToCode,
+}: {
+  standards: ConsideredStandard[];
+  onJumpToCode: (code: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const citedCount = standards.filter((s) => s.cited).length;
+  const total = standards.length;
+
+  return (
+    <Card className="bg-card/50 border-border/50" data-testid="panel-considered">
+      <CardContent className="p-5 md:p-6">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          data-testid="button-toggle-considered"
+          className="w-full flex items-center justify-between gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md"
+        >
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="text-base font-serif text-foreground">Standards considered</h3>
+            {total > 0 ? (
+              <span className="text-xs text-muted-foreground">
+                {total} retrieved · {citedCount} cited · {total - citedCount} not cited
+              </span>
+            ) : (
+              <span className="text-xs text-muted-foreground">none retrieved</span>
+            )}
+          </div>
+          <ChevronDown
+            className={cn(
+              "w-4 h-4 text-muted-foreground transition-transform shrink-0",
+              open && "rotate-180",
+            )}
+          />
+        </button>
+
+        {open && (
+          <div className="mt-4">
+            {total === 0 ? (
+              <p className="text-sm text-muted-foreground" data-testid="text-considered-empty">
+                No curriculum standards were retrieved for this subject and grade. The plan was
+                generated without curriculum grounding.
+              </p>
+            ) : (
+              <>
+                <p className="text-xs text-muted-foreground mb-3">
+                  These are all the standards that were sent to the AI. Cited ones appear in the
+                  plan above; the rest were available but not used.
+                </p>
+                <ul className="space-y-2" data-testid="list-considered">
+                  {standards.map((s) => (
+                    <li
+                      key={s.code}
+                      data-testid={`considered-row-${s.code}`}
+                      data-cited={s.cited ? "true" : "false"}
+                      className={cn(
+                        "rounded-md border p-3 flex gap-3 items-start",
+                        s.cited
+                          ? "border-primary/40 bg-primary/5"
+                          : "border-border/60 bg-background/40",
+                      )}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => s.cited && onJumpToCode(s.code)}
+                        disabled={!s.cited}
+                        aria-label={
+                          s.cited
+                            ? `Jump to ${s.code} in the plan`
+                            : `${s.code} (not cited in this plan)`
+                        }
+                        className={cn(
+                          badgeVariants({ variant: s.cited ? "secondary" : "outline" }),
+                          "font-mono text-xs shrink-0",
+                          s.cited
+                            ? "cursor-pointer hover:opacity-80"
+                            : "opacity-70 cursor-default",
+                        )}
+                      >
+                        {s.code}
+                      </button>
+                      <div className="min-w-0 flex-1">
+                        {s.strand && (
+                          <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">
+                            {s.strand}
+                          </p>
+                        )}
+                        <p className="text-sm text-foreground leading-snug">{s.description}</p>
+                      </div>
+                      {s.cited ? (
+                        <Badge variant="secondary" className="text-[10px] shrink-0">
+                          Cited
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px] shrink-0 text-muted-foreground">
+                          Not cited
+                        </Badge>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function Home() {
   const [copied, setCopied] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -363,6 +487,7 @@ export default function Home() {
         teacher_request: vars.teacher_request,
         lesson_plan: resp.lesson_plan,
         citations: resp.citations ?? [],
+        considered_standards: resp.considered_standards ?? [],
       });
       queryClient.invalidateQueries({ queryKey: ["history"] });
     },
@@ -386,7 +511,11 @@ export default function Home() {
       return res.json();
     },
     onSuccess: (plan) => {
-      setDisplayedPlan({ ...plan, citations: plan.citations ?? [] });
+      setDisplayedPlan({
+        ...plan,
+        citations: plan.citations ?? [],
+        considered_standards: plan.considered_standards ?? [],
+      });
       setHistoryOpen(false);
       window.scrollTo({ top: 0, behavior: "smooth" });
     },
@@ -1042,6 +1171,11 @@ export default function Home() {
             </Card>
 
             <CitationsPanel citations={displayedPlan.citations} onJumpToCode={jumpToCode} />
+
+            <ConsideredStandardsPanel
+              standards={displayedPlan.considered_standards}
+              onJumpToCode={jumpToCode}
+            />
           </div>
         )}
       </div>

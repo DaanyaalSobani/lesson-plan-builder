@@ -108,10 +108,18 @@ class Citation(BaseModel):
     found_in_curriculum: bool
 
 
+class ConsideredStandard(BaseModel):
+    code: str
+    strand: str | None = None
+    description: str
+    cited: bool = False
+
+
 class GenerateResponse(BaseModel):
     id: int
     lesson_plan: str
     citations: list[Citation]
+    considered_standards: list[ConsideredStandard]
 
 
 class LessonPlanSummary(BaseModel):
@@ -126,6 +134,7 @@ class LessonPlanSummary(BaseModel):
 class LessonPlanDetail(LessonPlanSummary):
     lesson_plan: str
     citations: list[Citation] = []
+    considered_standards: list[ConsideredStandard] = []
 
 
 class HistoryResponse(BaseModel):
@@ -166,15 +175,32 @@ async def generate_lesson_plan(req: GenerateRequest):
 
     citations = _validate_codes(lesson_plan, curriculum_rows)
 
+    cited_codes = {c.code for c in citations if c.found_in_curriculum}
+    considered_standards = [
+        ConsideredStandard(
+            code=row["standard_code"],
+            strand=row.get("strand"),
+            description=row["description"],
+            cited=row["standard_code"] in cited_codes,
+        )
+        for row in curriculum_rows
+    ]
+
     plan_id = save_lesson_plan(
         subject=req.subject,
         grade=req.grade,
         teacher_request=req.teacher_request,
         lesson_plan=lesson_plan,
         citations=[c.model_dump() for c in citations],
+        considered_standards=[c.model_dump() for c in considered_standards],
     )
 
-    return GenerateResponse(id=plan_id, lesson_plan=lesson_plan, citations=citations)
+    return GenerateResponse(
+        id=plan_id,
+        lesson_plan=lesson_plan,
+        citations=citations,
+        considered_standards=considered_standards,
+    )
 
 
 @app.get("/history", response_model=HistoryResponse)
