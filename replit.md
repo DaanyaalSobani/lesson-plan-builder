@@ -24,14 +24,30 @@ To start both services manually from a shell: `bash start-dev.sh`
 - `artifacts/lesson-planner/` — React frontend
 - `artifacts/lesson-plan-api/` — Python FastAPI backend
   - `main.py` — FastAPI app, startup hook, `/generate` endpoint
-  - `db.py` — SQLite schema and helpers (`curriculum.db` auto-created)
-  - `ingest.py` — Loads `sample_curriculum.json` into the DB
+  - `db.py` — SQLite helpers; runs `db/schema.sql` + migrations + seed at startup
+  - `db/schema.sql` — canonical CREATE TABLE statements (source of truth)
+  - `db/migrations/` — incremental schema changes, tracked in `schema_migrations`
+  - `db/seed_curriculum.sql` — auto-generated curriculum INSERTs
+  - `ingest.py` — PDF parser + CLI (`--pdf`, `--all-pdfs`, `--rebuild-db`)
+  - `curriculum_pdfs/` — drop new curriculum PDFs here, then re-ingest
   - `retrieval.py` — Curriculum lookup by subject + grade
   - `prompt_builder.py` — Assembles system + user prompts
   - `providers/base.py` — Abstract `LLMProvider` base class
   - `providers/anthropic_provider.py` — Anthropic Claude implementation
   - `prompts/lesson_plan.txt` — **Editable system prompt** (changes apply without restart)
-  - `sample_curriculum.json` — ELA, Math, Science standards for grades 3–5
+
+## Reproducing the database
+
+The database is rebuildable from source files:
+
+```bash
+cd artifacts/lesson-plan-api
+python ingest.py --all-pdfs --rebuild-db
+```
+
+This wipes `curriculum.db`, runs `db/schema.sql` + migrations, re-parses every
+PDF in `curriculum_pdfs/` into `db/seed_curriculum.sql`, and applies it. See
+`db/README.md` and `curriculum_pdfs/README.md` for details.
 
 ## Architecture decisions
 

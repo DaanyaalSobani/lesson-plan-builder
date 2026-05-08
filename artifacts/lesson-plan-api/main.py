@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from db import (
     init_db,
     is_empty,
+    apply_seed,
     save_lesson_plan,
     list_lesson_plans,
     get_lesson_plan,
@@ -29,7 +30,6 @@ from db import (
     curriculum_totals,
     list_standards,
 )
-from ingest import load_from_json, ingest, SAMPLE_JSON
 from retrieval import get_curriculum
 from prompt_builder import build_prompt
 from providers.base import LLMProvider
@@ -83,12 +83,17 @@ CITATION_MARKER_PATTERN = re.compile(r"\[([A-Z][A-Z0-9.\-]*\d[A-Z0-9.\-]*)\]")
 async def startup_event():
     init_db()
     if is_empty():
-        log.info("Curriculum database is empty — loading sample data from sample_curriculum.json")
-        records = load_from_json(SAMPLE_JSON)
-        count = ingest(records)
-        log.info(f"Loaded {count} curriculum standards.")
+        log.info("Curriculum database is empty — applying db/seed_curriculum.sql")
+        count = apply_seed()
+        if count == 0:
+            log.warning(
+                "Seed file produced 0 rows. Run `python ingest.py --all-pdfs --rebuild-db` "
+                "after dropping a curriculum PDF into curriculum_pdfs/."
+            )
+        else:
+            log.info(f"Loaded {count} curriculum standards from seed.")
     else:
-        log.info("Curriculum database already populated — skipping ingest.")
+        log.info("Curriculum database already populated — skipping seed.")
 
 
 class GenerateRequest(BaseModel):

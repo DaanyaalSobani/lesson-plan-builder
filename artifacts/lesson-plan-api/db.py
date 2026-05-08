@@ -1,9 +1,13 @@
 import sqlite3
 import os
 import json
+import datetime
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "curriculum.db")
-SAMPLE_JSON_PATH = os.path.join(os.path.dirname(__file__), "sample_curriculum.json")
+HERE = os.path.dirname(__file__)
+DB_PATH = os.path.join(HERE, "curriculum.db")
+SCHEMA_PATH = os.path.join(HERE, "db", "schema.sql")
+MIGRATIONS_DIR = os.path.join(HERE, "db", "migrations")
+SEED_PATH = os.path.join(HERE, "db", "seed_curriculum.sql")
 
 
 def get_connection() -> sqlite3.Connection:
@@ -12,68 +16,109 @@ def get_connection() -> sqlite3.Connection:
     return conn
 
 
+def _run_sql_file(conn: sqlite3.Connection, path: str) -> None:
+    with open(path, "r", encoding="utf-8") as f:
+        sql = f.read()
+    conn.executescript(sql)
+
+
+def _apply_migrations(conn: sqlite3.Connection) -> list[str]:
+    """Apply any *.sql files in db/migrations/ that haven't been recorded yet.
+
+    Migrations run in lexical order inside a transaction each. The
+    schema_migrations table tracks which filenames have already been applied.
+    """
+    if not os.path.isdir(MIGRATIONS_DIR):
+        return []
+    applied = {row["filename"] for row in conn.execute(
+        "SELECT filename FROM schema_migrations"
+    ).fetchall()}
+    pending = sorted(
+        f for f in os.listdir(MIGRATIONS_DIR)
+        if f.endswith(".sql") and f not in applied
+    )
+    newly_applied: list[str] = []
+    for fname in pending:
+        path = os.path.join(MIGRATIONS_DIR, fname)
+        with open(path, "r", encoding="utf-8") as fh:
+            sql = fh.read()
+        # executescript() is not atomic on its own — wrap each migration in an
+        # explicit transaction so a partial failure rolls back cleanly.
+        try:
+            conn.executescript("BEGIN;\n" + sql + "\nCOMMIT;")
+            conn.execute(
+                "INSERT INTO schema_migrations (filename) VALUES (?)",
+                (fname,),
+            )
+            conn.commit()
+            newly_applied.append(fname)
+        except Exception:
+            try:
+                conn.execute("ROLLBACK")
+            except sqlite3.OperationalError:
+                pass
+            raise
+    return newly_applied
+
+
 def init_db() -> None:
-    """Create the curriculum and lesson_plans tables if they don't exist."""
+    """Create tables from db/schema.sql, apply migrations, and (best-effort)
+    backfill columns added before the migration runner existed."""
     with get_connection() as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS curriculum (
-                id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                subject         TEXT NOT NULL,
-                grade           TEXT NOT NULL,
-                standard_code   TEXT NOT NULL UNIQUE,
-                strand          TEXT,
-                description     TEXT NOT NULL,
-                source_version  TEXT,
-                ingested_at     TEXT NOT NULL DEFAULT (datetime('now'))
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS lesson_plans (
-                id               INTEGER PRIMARY KEY AUTOINCREMENT,
-                subject          TEXT NOT NULL,
-                grade            TEXT NOT NULL,
-                teacher_request  TEXT NOT NULL,
-                lesson_plan      TEXT NOT NULL,
-                citations        TEXT,
-                title            TEXT,
-                created_at       TEXT NOT NULL DEFAULT (datetime('now'))
-            )
-            """
-        )
-        # Inline migrations: add columns if upgrading from an older schema.
-        # Safe to run on every startup.
-        plan_cols = {row["name"] for row in conn.execute("PRAGMA table_info(lesson_plans)").fetchall()}
+        _run_sql_file(conn, SCHEMA_PATH)
+        # Best-effort inline backfills for DBs that pre-date the migration runner.
+        # Safe to run on every startup; ALTER TABLE only fires if the column is missing.
+        plan_cols = {row["name"] for row in conn.execute(
+            "PRAGMA table_info(lesson_plans)"
+        ).fetchall()}
         if "citations" not in plan_cols:
             conn.execute("ALTER TABLE lesson_plans ADD COLUMN citations TEXT")
         if "title" not in plan_cols:
             conn.execute("ALTER TABLE lesson_plans ADD COLUMN title TEXT")
-
-        curr_cols = {row["name"] for row in conn.execute("PRAGMA table_info(curriculum)").fetchall()}
+        curr_cols = {row["name"] for row in conn.execute(
+            "PRAGMA table_info(curriculum)"
+        ).fetchall()}
         if "ingested_at" not in curr_cols:
-            # ALTER TABLE in SQLite cannot add a column with a non-constant default,
-            # so add a nullable column then backfill in a separate UPDATE.
             conn.execute("ALTER TABLE curriculum ADD COLUMN ingested_at TEXT")
-            backfill = _sample_file_mtime_iso()
+            now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
             conn.execute(
                 "UPDATE curriculum SET ingested_at = ? WHERE ingested_at IS NULL",
-                (backfill,),
+                (now,),
             )
         conn.commit()
+        _apply_migrations(conn)
 
 
-def _sample_file_mtime_iso() -> str:
-    """Best-effort timestamp for backfilling pre-existing curriculum rows.
-    Falls back to current time if the sample file is unavailable."""
-    try:
-        import datetime
-        ts = os.path.getmtime(SAMPLE_JSON_PATH)
-        return datetime.datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
-    except OSError:
-        import datetime
-        return datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+def apply_seed() -> int:
+    """Execute db/seed_curriculum.sql against the database. Returns the
+    curriculum row count after seeding. No-op if the seed file is missing."""
+    if not os.path.exists(SEED_PATH):
+        return 0
+    with get_connection() as conn:
+        _run_sql_file(conn, SEED_PATH)
+        row = conn.execute("SELECT COUNT(*) AS n FROM curriculum").fetchone()
+        return int(row["n"])
+
+
+def rebuild_from_source(*, wipe_lesson_plans: bool = False) -> dict:
+    """Rebuild the curriculum table from schema.sql + migrations + seed.
+
+    By default, **only the curriculum table is wiped** — saved lesson plans in
+    ``lesson_plans`` are preserved because they're user-generated data, not
+    reproducible from source. Pass ``wipe_lesson_plans=True`` to delete the
+    entire database file (e.g. for a hard reset in dev).
+    """
+    if wipe_lesson_plans:
+        if os.path.exists(DB_PATH):
+            os.remove(DB_PATH)
+        init_db()
+    else:
+        init_db()
+        with get_connection() as conn:
+            conn.execute("DELETE FROM curriculum")
+            conn.commit()
+    seeded = apply_seed()
+    return {"db_path": DB_PATH, "curriculum_rows": seeded}
 
 
 def save_lesson_plan(
@@ -83,7 +128,6 @@ def save_lesson_plan(
     lesson_plan: str,
     citations: list[dict] | None = None,
 ) -> int:
-    """Insert a generated lesson plan and return its new id."""
     citations_json = json.dumps(citations) if citations is not None else None
     with get_connection() as conn:
         cur = conn.execute(
@@ -98,7 +142,6 @@ def save_lesson_plan(
 
 
 def list_lesson_plans(limit: int = 50) -> list[dict]:
-    """Return saved lesson plan summaries in reverse chronological order (newest first)."""
     with get_connection() as conn:
         rows = conn.execute(
             """
@@ -113,10 +156,6 @@ def list_lesson_plans(limit: int = 50) -> list[dict]:
 
 
 def get_lesson_plan(plan_id: int) -> dict | None:
-    """Return a single lesson plan by id, or None if not found.
-
-    The `citations` field is decoded from JSON to a list of dicts (or [] if absent).
-    """
     with get_connection() as conn:
         row = conn.execute(
             """
@@ -138,7 +177,6 @@ def get_lesson_plan(plan_id: int) -> dict | None:
 
 
 def delete_lesson_plan(plan_id: int) -> bool:
-    """Delete a lesson plan by id. Returns True if a row was removed."""
     with get_connection() as conn:
         cur = conn.execute("DELETE FROM lesson_plans WHERE id = ?", (plan_id,))
         conn.commit()
@@ -146,7 +184,6 @@ def delete_lesson_plan(plan_id: int) -> bool:
 
 
 def update_lesson_plan_title(plan_id: int, title: str | None) -> bool:
-    """Update the title of a lesson plan. Pass None or empty string to clear it. Returns True if the row exists."""
     normalized = title.strip() if isinstance(title, str) else None
     if normalized == "":
         normalized = None
@@ -160,14 +197,12 @@ def update_lesson_plan_title(plan_id: int, title: str | None) -> bool:
 
 
 def is_empty() -> bool:
-    """Return True if the curriculum table has no rows."""
     with get_connection() as conn:
         row = conn.execute("SELECT COUNT(*) AS n FROM curriculum").fetchone()
         return row["n"] == 0
 
 
 def curriculum_summary() -> list[dict]:
-    """Return one row per (subject, grade) with count, source versions, and last ingest time."""
     with get_connection() as conn:
         rows = conn.execute(
             """
@@ -191,7 +226,6 @@ def curriculum_summary() -> list[dict]:
 
 
 def curriculum_totals() -> dict:
-    """Overall pipeline-health totals."""
     with get_connection() as conn:
         row = conn.execute(
             """
@@ -207,7 +241,6 @@ def curriculum_totals() -> dict:
 
 
 def list_standards(subject: str, grade: str) -> list[dict]:
-    """All standards for a (subject, grade) bucket — used by the curriculum browser."""
     with get_connection() as conn:
         rows = conn.execute(
             """
