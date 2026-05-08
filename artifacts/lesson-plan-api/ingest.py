@@ -79,6 +79,18 @@ ONTARIO_ENL1W_STRAND_TITLES = {
     "D": "Composition: Expressing Ideas and Creating Texts",
 }
 
+# Ontario Science & Technology, Grades 1-8 (2022). Strands A-E are stable
+# across grades; only the sub-titles per strand change per grade, but those
+# are part of each specific expectation's description so the strand-letter
+# titles below are sufficient for grouping.
+ONTARIO_SCITECH_STRAND_TITLES = {
+    "A": "STEM Skills and Connections",
+    "B": "Life Systems",
+    "C": "Matter and Energy",
+    "D": "Structures and Mechanisms",
+    "E": "Earth and Space Systems",
+}
+
 # Backwards-compat alias for older imports / tests.
 ONTARIO_STRAND_TITLES = ONTARIO_MTH1W_STRAND_TITLES
 
@@ -322,6 +334,25 @@ def _parser_for(pdf_path: str):
             kwargs.update(overrides)
             return parse_ontario_pdf(p, **kwargs)
         return _enl1w
+
+    # Ontario Science & Technology, Grades 1-8 (2022). Filenames look like
+    # "ontario_scitech_3_2022.pdf" — pull the grade out of the filename so a
+    # single dispatch branch covers every grade in the series.
+    sci_match = re.search(r"scitech[_\-]?g?(\d+)", name)
+    if sci_match:
+        grade = sci_match.group(1)
+        def _scitech(p, _grade=grade, **overrides):
+            kwargs = dict(
+                subject="Science",
+                grade=_grade,
+                source_version=f"Ontario Science & Technology Grade {_grade} 2022",
+                code_prefix=f"SCI{_grade}",
+                front_matter_pages=0,
+                strand_titles=ONTARIO_SCITECH_STRAND_TITLES,
+            )
+            kwargs.update(overrides)
+            return parse_ontario_pdf(p, **kwargs)
+        return _scitech
 
     # Default: Ontario MTH1W (also a safe fallback for similar layouts).
     return parse_ontario_pdf

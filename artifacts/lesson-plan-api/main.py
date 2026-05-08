@@ -286,6 +286,10 @@ async def history_update(plan_id: int, req: UpdatePlanRequest):
 SOURCE_PDF_FILENAMES: dict[str, str] = {
     "Ontario MTH1W 2021": "ontario_math_9_mth1w_2021.pdf",
     "Ontario ENL1W 2023": "ontario_english_9_enl1w_2023.pdf",
+    "Ontario Science & Technology Grade 1 2022": "ontario_scitech_1_2022.pdf",
+    "Ontario Science & Technology Grade 2 2022": "ontario_scitech_2_2022.pdf",
+    "Ontario Science & Technology Grade 3 2022": "ontario_scitech_3_2022.pdf",
+    "Ontario Science & Technology Grade 4 2022": "ontario_scitech_4_2022.pdf",
 }
 
 CURRICULUM_PDF_DIR = os.path.join(os.path.dirname(__file__), "curriculum_pdfs")
