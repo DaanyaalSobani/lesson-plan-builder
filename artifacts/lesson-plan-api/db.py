@@ -1,5 +1,6 @@
 import sqlite3
 import os
+import json
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "curriculum.db")
 
@@ -34,22 +35,35 @@ def init_db() -> None:
                 grade            TEXT NOT NULL,
                 teacher_request  TEXT NOT NULL,
                 lesson_plan      TEXT NOT NULL,
+                citations        TEXT,
                 created_at       TEXT NOT NULL DEFAULT (datetime('now'))
             )
             """
         )
+        # Inline migration: add citations column if upgrading from an older schema
+        # that pre-dates Task #9. Safe to run on every startup.
+        cols = {row["name"] for row in conn.execute("PRAGMA table_info(lesson_plans)").fetchall()}
+        if "citations" not in cols:
+            conn.execute("ALTER TABLE lesson_plans ADD COLUMN citations TEXT")
         conn.commit()
 
 
-def save_lesson_plan(subject: str, grade: str, teacher_request: str, lesson_plan: str) -> int:
+def save_lesson_plan(
+    subject: str,
+    grade: str,
+    teacher_request: str,
+    lesson_plan: str,
+    citations: list[dict] | None = None,
+) -> int:
     """Insert a generated lesson plan and return its new id."""
+    citations_json = json.dumps(citations) if citations is not None else None
     with get_connection() as conn:
         cur = conn.execute(
             """
-            INSERT INTO lesson_plans (subject, grade, teacher_request, lesson_plan)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO lesson_plans (subject, grade, teacher_request, lesson_plan, citations)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (subject, grade, teacher_request, lesson_plan),
+            (subject, grade, teacher_request, lesson_plan, citations_json),
         )
         conn.commit()
         return int(cur.lastrowid)
@@ -71,17 +85,28 @@ def list_lesson_plans(limit: int = 50) -> list[dict]:
 
 
 def get_lesson_plan(plan_id: int) -> dict | None:
-    """Return a single lesson plan by id, or None if not found."""
+    """Return a single lesson plan by id, or None if not found.
+
+    The `citations` field is decoded from JSON to a list of dicts (or [] if absent).
+    """
     with get_connection() as conn:
         row = conn.execute(
             """
-            SELECT id, subject, grade, teacher_request, lesson_plan, created_at
+            SELECT id, subject, grade, teacher_request, lesson_plan, citations, created_at
             FROM lesson_plans
             WHERE id = ?
             """,
             (plan_id,),
         ).fetchone()
-        return dict(row) if row else None
+        if not row:
+            return None
+        result = dict(row)
+        raw = result.pop("citations", None)
+        try:
+            result["citations"] = json.loads(raw) if raw else []
+        except (ValueError, TypeError):
+            result["citations"] = []
+        return result
 
 
 def is_empty() -> bool:

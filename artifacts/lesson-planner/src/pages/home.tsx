@@ -9,6 +9,7 @@ import {
   Sparkles,
   Loader2,
   AlertCircle,
+  AlertTriangle,
   Copy,
   Check,
   History,
@@ -46,6 +47,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const formSchema = z.object({
   subject: z.string().min(1, "Please select a subject."),
@@ -63,9 +70,22 @@ type LessonPlanSummary = {
   created_at: string;
 };
 
-type LessonPlanDetail = LessonPlanSummary & { lesson_plan: string };
+type Citation = {
+  code: string;
+  description: string;
+  found_in_curriculum: boolean;
+};
 
-type GenerateResponse = { id: number; lesson_plan: string };
+type LessonPlanDetail = LessonPlanSummary & {
+  lesson_plan: string;
+  citations?: Citation[];
+};
+
+type GenerateResponse = {
+  id: number;
+  lesson_plan: string;
+  citations: Citation[];
+};
 
 type DisplayedPlan = {
   id: number;
@@ -73,6 +93,7 @@ type DisplayedPlan = {
   grade: string;
   teacher_request: string;
   lesson_plan: string;
+  citations: Citation[];
   created_at?: string;
 };
 
@@ -88,6 +109,77 @@ function formatTimestamp(iso: string): string {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function CitationsPanel({ citations }: { citations: Citation[] }) {
+  const verifiedCount = citations.filter((c) => c.found_in_curriculum).length;
+  const unverifiedCount = citations.length - verifiedCount;
+
+  return (
+    <Card className="bg-card/50 border-border/50" data-testid="panel-citations">
+      <CardContent className="p-5 md:p-6">
+        <div className="flex items-center gap-2 mb-3 flex-wrap">
+          <h3 className="text-base font-serif text-foreground">Standards cited in this plan</h3>
+          {citations.length > 0 && (
+            <span className="text-xs text-muted-foreground">
+              {verifiedCount} verified
+              {unverifiedCount > 0 ? ` · ${unverifiedCount} unverified` : ""}
+            </span>
+          )}
+        </div>
+
+        {citations.length === 0 ? (
+          <p className="text-sm text-muted-foreground" data-testid="text-citations-empty">
+            This plan does not cite any specific curriculum standards.
+          </p>
+        ) : (
+          <TooltipProvider delayDuration={150}>
+            <ul className="flex flex-wrap gap-2" data-testid="list-citations">
+              {citations.map((c) => {
+                const chip = c.found_in_curriculum ? (
+                  <Tooltip key={c.code}>
+                    <TooltipTrigger asChild>
+                      <Badge
+                        variant="secondary"
+                        className="font-mono text-xs cursor-help"
+                        data-testid={`citation-chip-${c.code}`}
+                        data-verified="true"
+                      >
+                        {c.code}
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-xs">
+                      <p className="text-xs leading-snug">{c.description}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <Tooltip key={c.code}>
+                    <TooltipTrigger asChild>
+                      <Badge
+                        variant="outline"
+                        className="font-mono text-xs cursor-help border-amber-500/60 text-amber-700 dark:text-amber-400 gap-1"
+                        data-testid={`citation-chip-${c.code}`}
+                        data-verified="false"
+                      >
+                        <AlertTriangle className="w-3 h-3" />
+                        {c.code}
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-xs">
+                      <p className="text-xs leading-snug">
+                        This standard code was not found in the curriculum database — please verify manually.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                );
+                return <li key={c.code}>{chip}</li>;
+              })}
+            </ul>
+          </TooltipProvider>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 export default function Home() {
@@ -125,6 +217,7 @@ export default function Home() {
         grade: vars.grade,
         teacher_request: vars.teacher_request,
         lesson_plan: resp.lesson_plan,
+        citations: resp.citations ?? [],
       });
       queryClient.invalidateQueries({ queryKey: ["history"] });
     },
@@ -148,7 +241,7 @@ export default function Home() {
       return res.json();
     },
     onSuccess: (plan) => {
-      setDisplayedPlan(plan);
+      setDisplayedPlan({ ...plan, citations: plan.citations ?? [] });
       setHistoryOpen(false);
       window.scrollTo({ top: 0, behavior: "smooth" });
     },
@@ -477,6 +570,8 @@ export default function Home() {
                 </ReactMarkdown>
               </CardContent>
             </Card>
+
+            <CitationsPanel citations={displayedPlan.citations} />
           </div>
         )}
       </div>

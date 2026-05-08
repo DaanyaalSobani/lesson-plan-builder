@@ -60,7 +60,12 @@ def get_llm_provider() -> LLMProvider:
         _llm_provider = _create_provider()
     return _llm_provider
 
-STANDARD_CODE_PATTERN = re.compile(r"\b[A-Z]{2,6}\.\d+\.[A-Z0-9]+\.\d+\b")
+
+# Matches `[CODE]` markers where CODE looks like a standards code:
+# starts with letters, then any mix of letters/digits/dots/dashes (must contain at
+# least one digit). Captures both Common Core (`ELA.3.RL.1`) and Ontario
+# (`MTH1W.B1.1`) style codes.
+CITATION_MARKER_PATTERN = re.compile(r"\[([A-Z][A-Z0-9.\-]*\d[A-Z0-9.\-]*)\]")
 
 
 @app.on_event("startup")
@@ -81,9 +86,16 @@ class GenerateRequest(BaseModel):
     teacher_request: str
 
 
+class Citation(BaseModel):
+    code: str
+    description: str
+    found_in_curriculum: bool
+
+
 class GenerateResponse(BaseModel):
     id: int
     lesson_plan: str
+    citations: list[Citation]
 
 
 class LessonPlanSummary(BaseModel):
@@ -96,6 +108,7 @@ class LessonPlanSummary(BaseModel):
 
 class LessonPlanDetail(LessonPlanSummary):
     lesson_plan: str
+    citations: list[Citation] = []
 
 
 class HistoryResponse(BaseModel):
@@ -130,16 +143,17 @@ async def generate_lesson_plan(req: GenerateRequest):
 
     lesson_plan = provider.generate(system_prompt, user_prompt)
 
-    _validate_codes(lesson_plan, curriculum_rows)
+    citations = _validate_codes(lesson_plan, curriculum_rows)
 
     plan_id = save_lesson_plan(
         subject=req.subject,
         grade=req.grade,
         teacher_request=req.teacher_request,
         lesson_plan=lesson_plan,
+        citations=[c.model_dump() for c in citations],
     )
 
-    return GenerateResponse(id=plan_id, lesson_plan=lesson_plan)
+    return GenerateResponse(id=plan_id, lesson_plan=lesson_plan, citations=citations)
 
 
 @app.get("/history", response_model=HistoryResponse)
@@ -167,19 +181,54 @@ async def history_detail(plan_id: int):
     return LessonPlanDetail(**row)
 
 
-def _validate_codes(response: str, curriculum_rows: list[dict]) -> None:
+def _validate_codes(response: str, curriculum_rows: list[dict]) -> list[Citation]:
     """
-    Check the LLM response for hallucinated curriculum codes.
-    Logs any codes that appear in the response but were NOT in the retrieved set.
-    Does NOT block or modify the response.
+    Extract every `[CODE]` citation marker the LLM emitted, cross-reference
+    against the retrieved curriculum, and return a structured list of
+    Citation records (one per unique code, in the order they first appear
+    in the response).
+
+    A code with `found_in_curriculum=False` is a hallucination — the
+    description will be empty and the frontend should warn the teacher.
     """
-    retrieved_codes = {row["standard_code"] for row in curriculum_rows}
-    mentioned_codes = set(STANDARD_CODE_PATTERN.findall(response))
-    hallucinated = mentioned_codes - retrieved_codes
+    by_code: dict[str, dict] = {row["standard_code"]: row for row in curriculum_rows}
+
+    seen: set[str] = set()
+    ordered_codes: list[str] = []
+    for match in CITATION_MARKER_PATTERN.finditer(response):
+        code = match.group(1)
+        if code not in seen:
+            seen.add(code)
+            ordered_codes.append(code)
+
+    citations: list[Citation] = []
+    for code in ordered_codes:
+        row = by_code.get(code)
+        if row is not None:
+            citations.append(
+                Citation(
+                    code=code,
+                    description=row["description"],
+                    found_in_curriculum=True,
+                )
+            )
+        else:
+            citations.append(
+                Citation(
+                    code=code,
+                    description="",
+                    found_in_curriculum=False,
+                )
+            )
+
+    hallucinated = [c.code for c in citations if not c.found_in_curriculum]
     if hallucinated:
         log.warning(
-            f"Output validation: LLM cited standard code(s) not in the retrieved set: "
-            f"{sorted(hallucinated)}"
+            f"Output validation: LLM cited standard code(s) not in the retrieved set: {hallucinated}"
         )
+    elif citations:
+        log.info(f"Output validation: all {len(citations)} cited codes are from the retrieved curriculum set.")
     else:
-        log.info("Output validation: all cited codes are from the retrieved curriculum set.")
+        log.warning("Output validation: LLM emitted no [CODE] citation markers.")
+
+    return citations

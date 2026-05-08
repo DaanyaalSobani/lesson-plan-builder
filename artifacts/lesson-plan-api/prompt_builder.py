@@ -46,6 +46,8 @@ Grade: {grade}
 Relevant curriculum standards:
 {standards_block}
 
+You MUST only cite codes from the list above, copied verbatim inside `[CODE]` markers. Do not invent, paraphrase, or guess codes — if no listed standard fits a particular item, omit the citation rather than fabricate one.
+
 <teacher_request>
 {teacher_request.strip()}
 </teacher_request>
