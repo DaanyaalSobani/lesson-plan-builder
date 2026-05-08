@@ -9,7 +9,8 @@ Both services start automatically when the repl is opened — no manual steps re
 - `Python Backend` workflow — FastAPI backend (port 8000); launched by the Run button via the `Project` composite workflow
 - `artifacts/lesson-planner: web` workflow — React frontend (port 24954, preview at `/`); auto-started by the platform as a registered artifact workflow
 - `artifacts/api-server: API Server` workflow — Node.js/Express API server (port 8080, path `/api`)
-- Required env: `ANTHROPIC_API_KEY` — Anthropic Claude API key
+- Env: `ANTHROPIC_API_KEY` — required only for the default `PROVIDER=anthropic`
+- Optional env: `PROVIDER=mock` — runs the offline `MockProvider` (no API key, no network calls); used by tests and handy for local dev
 
 To start both services manually from a shell: `bash start-dev.sh`
 
@@ -34,6 +35,7 @@ To start both services manually from a shell: `bash start-dev.sh`
   - `prompt_builder.py` — Assembles system + user prompts
   - `providers/base.py` — Abstract `LLMProvider` base class
   - `providers/anthropic_provider.py` — Anthropic Claude implementation
+  - `providers/mock_provider.py` — Deterministic offline provider for tests / no-API-key dev (enable with `PROVIDER=mock`)
   - `prompts/lesson_plan.txt` — **Editable system prompt** (changes apply without restart)
 
 ## Reproducing the database

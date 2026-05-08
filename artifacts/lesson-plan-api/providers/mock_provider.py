@@ -97,18 +97,20 @@ def _render_plan(
 
     codes = [c for c, _ in standards]
 
-    # Pick a stable, repeatable subset for each section. Wrap with modulo so
-    # this works for buckets with very few standards too.
+    # Pick a stable, repeatable list of codes for each section. Wraps with
+    # modulo so we always return exactly ``count`` items even when the bucket
+    # only has 1 or 2 standards — guaranteeing every required objective /
+    # step / assessment line ends with at least one real [CODE] citation.
     def pick(start: int, count: int) -> list[str]:
-        return [codes[(start + i) % len(codes)] for i in range(min(count, len(codes)))]
+        return [codes[(start + i) % len(codes)] for i in range(count)]
 
-    objectives = pick(0, 3)
+    obj1, obj2, obj3 = pick(0, 3)
     warmup = pick(0, 1)
-    direct = pick(1, 2)
-    guided = pick(2, 2)
+    direct1, direct2 = pick(1, 2)
+    guided1, guided2 = pick(2, 2)
     independent = pick(3, 1)
     closure = pick(4, 1)
-    assessments = pick(0, 2)
+    assess1, assess2 = pick(0, 2)
 
     standards_addressed_lines = [
         f"- `[{code}]` — addressed in objectives, guided practice, and assessment."
@@ -130,9 +132,9 @@ Grade {grade} {subject}
 {chr(10).join(standards_addressed_lines)}
 
 4. **Learning Objectives**
-- Students will identify the key idea from today's focus standard. {_cite(objectives[:1])}
-- Students will apply the concept to a guided example. {_cite(objectives[1:2])}
-- Students will demonstrate understanding through an exit task. {_cite(objectives[2:3])}
+- Students will identify the key idea from today's focus standard. [{obj1}]
+- Students will apply the concept to a guided example. [{obj2}]
+- Students will demonstrate understanding through an exit task. [{obj3}]
 
 5. **Materials Needed**
 - Whiteboard or projector
@@ -141,16 +143,16 @@ Grade {grade} {subject}
 
 6. **Lesson Outline**
 - **Warm-Up / Hook (5-10 min):** Pose a quick question tied to the teacher's request to surface prior knowledge. {_cite(warmup)}
-- **Direct Instruction (10-15 min):** Walk through a worked example aligned to the focus standards. {_cite(direct[:1])}
-  Model the reasoning step-by-step on the board. {_cite(direct[1:2])}
-- **Guided Practice (10-15 min):** Students work in pairs on a structured problem set with teacher check-ins. {_cite(guided[:1])}
-  Circulate and prompt students to articulate their reasoning. {_cite(guided[1:2])}
+- **Direct Instruction (10-15 min):** Walk through a worked example aligned to the focus standards. [{direct1}]
+  Model the reasoning step-by-step on the board. [{direct2}]
+- **Guided Practice (10-15 min):** Students work in pairs on a structured problem set with teacher check-ins. [{guided1}]
+  Circulate and prompt students to articulate their reasoning. [{guided2}]
 - **Independent Practice (10-15 min):** Each student completes a short task individually. {_cite(independent)}
 - **Closure / Exit Ticket (5 min):** One short prompt that mirrors the lesson objective. {_cite(closure)}
 
 7. **Assessment**
-- Exit-ticket prompt graded for accuracy and reasoning. {_cite(assessments[:1])}
-- Observation notes from guided practice circulation. {_cite(assessments[1:2])}
+- Exit-ticket prompt graded for accuracy and reasoning. [{assess1}]
+- Observation notes from guided practice circulation. [{assess2}]
 
 8. **Differentiation Notes**
 - Support: provide a partially worked example and sentence stems.

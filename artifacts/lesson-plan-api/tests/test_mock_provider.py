@@ -12,6 +12,7 @@ without any network call or API key. Verifies that the mock:
 
 import importlib
 import os
+import re
 
 import pytest
 from fastapi.testclient import TestClient
@@ -130,6 +131,59 @@ def test_render_plan_with_single_standard_only_cites_that_standard():
     )
     cited = set(re.findall(r"\[([A-Z][A-Z0-9.\-]*\d[A-Z0-9.\-]*)\]", plan))
     assert cited == {"MTH1W.B1.1"}, f"unexpected codes in rendered plan: {cited}"
+
+
+# Lines in the rendered plan that the system prompt requires to end with a
+# `[CODE]` citation: the three Learning Objectives, every Lesson Outline step
+# (warm-up, two direct-instruction steps, two guided-practice steps,
+# independent practice, closure), and the two Assessment items.
+_REQUIRED_CITED_LINE_PREFIXES = (
+    "- Students will identify",
+    "- Students will apply",
+    "- Students will demonstrate",
+    "- **Warm-Up / Hook",
+    "- **Direct Instruction",
+    "  Model the reasoning",
+    "- **Guided Practice",
+    "  Circulate and prompt",
+    "- **Independent Practice",
+    "- **Closure / Exit Ticket",
+    "- Exit-ticket prompt",
+    "- Observation notes",
+)
+
+_TRAILING_CITATION = re.compile(r"\[[A-Z][A-Z0-9.\-]*\d[A-Z0-9.\-]*\]\s*$")
+
+
+@pytest.mark.parametrize(
+    "standards",
+    [
+        [("MTH1W.B1.1", "one")],
+        [("MTH1W.B1.1", "one"), ("MTH1W.B2.1", "two")],
+        [("A1", "a"), ("B2", "b"), ("C3", "c"), ("D4", "d"), ("E5", "e")],
+    ],
+)
+def test_every_required_line_ends_with_a_citation(standards):
+    """When standards are present, every objective / activity / assessment
+    line the system prompt marks as cited must end with at least one real
+    `[CODE]` — even with as few as one or two standards available."""
+    from providers.mock_provider import _render_plan
+
+    plan = _render_plan(subject="Math", grade="9", teacher_request="t", standards=standards)
+    valid_codes = {c for c, _ in standards}
+
+    for prefix in _REQUIRED_CITED_LINE_PREFIXES:
+        line = next(
+            (ln for ln in plan.splitlines() if ln.startswith(prefix)),
+            None,
+        )
+        assert line is not None, f"required line not found in plan: {prefix!r}"
+        m = _TRAILING_CITATION.search(line)
+        assert m, f"required line missing trailing [CODE]: {line!r}"
+        cited = m.group(0).strip()[1:-1]
+        assert cited in valid_codes, (
+            f"required line cites unknown code {cited!r}: {line!r}"
+        )
 
 
 def test_mock_provider_works_without_anthropic_key(monkeypatch):
