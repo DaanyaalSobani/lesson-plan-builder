@@ -1,0 +1,138 @@
+[
+  {
+    "subject": "ELA",
+    "grade": "3",
+    "standard_code": "ELA.3.RL.1",
+    "strand": "Reading: Literature",
+    "description": "Ask and answer questions to demonstrate understanding of a text, referring explicitly to the text as the basis for the answers.",
+    "source_version": "CCSS 2010"
+  },
+  {
+    "subject": "ELA",
+    "grade": "3",
+    "standard_code": "ELA.3.RL.3",
+    "strand": "Reading: Literature",
+    "description": "Describe characters in a story (e.g., their traits, motivations, or feelings) and explain how their actions contribute to the sequence of events.",
+    "source_version": "CCSS 2010"
+  },
+  {
+    "subject": "ELA",
+    "grade": "3",
+    "standard_code": "ELA.3.W.3",
+    "strand": "Writing",
+    "description": "Write narratives to develop real or imagined experiences or events using effective technique, descriptive details, and clear event sequences.",
+    "source_version": "CCSS 2010"
+  },
+  {
+    "subject": "ELA",
+    "grade": "4",
+    "standard_code": "ELA.4.RI.1",
+    "strand": "Reading: Informational Text",
+    "description": "Refer to details and examples in a text when explaining what the text says explicitly and when drawing inferences from the text.",
+    "source_version": "CCSS 2010"
+  },
+  {
+    "subject": "ELA",
+    "grade": "4",
+    "standard_code": "ELA.4.RI.5",
+    "strand": "Reading: Informational Text",
+    "description": "Describe the overall structure of events, ideas, concepts, or information in a text or part of a text.",
+    "source_version": "CCSS 2010"
+  },
+  {
+    "subject": "ELA",
+    "grade": "5",
+    "standard_code": "ELA.5.RL.6",
+    "strand": "Reading: Literature",
+    "description": "Describe how a narrator's or speaker's point of view influences how events are described.",
+    "source_version": "CCSS 2010"
+  },
+  {
+    "subject": "ELA",
+    "grade": "5",
+    "standard_code": "ELA.5.W.1",
+    "strand": "Writing",
+    "description": "Write opinion pieces on topics or texts, supporting a point of view with reasons and information.",
+    "source_version": "CCSS 2010"
+  },
+  {
+    "subject": "Math",
+    "grade": "3",
+    "standard_code": "MATH.3.OA.1",
+    "strand": "Operations & Algebraic Thinking",
+    "description": "Interpret products of whole numbers, e.g., interpret 5 × 7 as the total number of objects in 5 groups of 7 objects each.",
+    "source_version": "CCSS 2010"
+  },
+  {
+    "subject": "Math",
+    "grade": "3",
+    "standard_code": "MATH.3.OA.7",
+    "strand": "Operations & Algebraic Thinking",
+    "description": "Fluently multiply and divide within 100, using strategies such as the relationship between multiplication and division or properties of operations.",
+    "source_version": "CCSS 2010"
+  },
+  {
+    "subject": "Math",
+    "grade": "3",
+    "standard_code": "MATH.3.NF.1",
+    "strand": "Number & Operations: Fractions",
+    "description": "Understand a fraction 1/b as the quantity formed by 1 part when a whole is partitioned into b equal parts; understand a fraction a/b as the quantity formed by a parts of size 1/b.",
+    "source_version": "CCSS 2010"
+  },
+  {
+    "subject": "Math",
+    "grade": "4",
+    "standard_code": "MATH.4.OA.2",
+    "strand": "Operations & Algebraic Thinking",
+    "description": "Multiply or divide to solve word problems involving multiplicative comparison, e.g., by using drawings and equations with a symbol for the unknown number.",
+    "source_version": "CCSS 2010"
+  },
+  {
+    "subject": "Math",
+    "grade": "4",
+    "standard_code": "MATH.4.NF.3",
+    "strand": "Number & Operations: Fractions",
+    "description": "Understand a fraction a/b with a > 1 as a sum of fractions 1/b. Add and subtract mixed numbers with like denominators.",
+    "source_version": "CCSS 2010"
+  },
+  {
+    "subject": "Math",
+    "grade": "5",
+    "standard_code": "MATH.5.NBT.5",
+    "strand": "Number & Operations in Base Ten",
+    "description": "Fluently multiply multi-digit whole numbers using the standard algorithm.",
+    "source_version": "CCSS 2010"
+  },
+  {
+    "subject": "Math",
+    "grade": "5",
+    "standard_code": "MATH.5.NF.4",
+    "strand": "Number & Operations: Fractions",
+    "description": "Apply and extend previous understandings of multiplication to multiply a fraction or whole number by a fraction.",
+    "source_version": "CCSS 2010"
+  },
+  {
+    "subject": "Science",
+    "grade": "3",
+    "standard_code": "SCI.3.LS1.1",
+    "strand": "Life Science",
+    "description": "Develop models to describe that organisms have unique and diverse life cycles but all have in common birth, growth, reproduction, and death.",
+    "source_version": "NGSS 2013"
+  },
+  {
+    "subject": "Science",
+    "grade": "4",
+    "standard_code": "SCI.4.ESS2.1",
+    "strand": "Earth & Space Science",
+    "description": "Make observations and/or measurements to provide evidence of the effects of weathering or the rate of erosion by water, ice, wind, or vegetation.",
+    "source_version": "NGSS 2013"
+  },
+  {
+    "subject": "Science",
+    "grade": "5",
+    "standard_code": "SCI.5.PS1.1",
+    "strand": "Physical Science",
+    "description": "Develop a model to describe that matter is made of particles too small to be seen.",
+    "source_version": "NGSS 2013"
+  }
+]

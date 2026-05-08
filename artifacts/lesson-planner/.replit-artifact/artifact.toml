@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Lesson Plan Generator"
+version = "1.0.0"
+id = "artifacts/lesson-planner"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 24954
+
+[services.development]
+run = "pnpm --filter @workspace/lesson-planner run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/lesson-planner", "run", "build" ]
+publicDir = "artifacts/lesson-planner/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24954"
+BASE_PATH = "/"
