@@ -104,11 +104,20 @@ type ConsideredStandard = {
   cited: boolean;
 };
 
+type ProviderRequest = {
+  provider: string;
+  model?: string | null;
+  max_tokens?: number | null;
+  system_prompt: string;
+  user_prompt: string;
+};
+
 type LessonPlanDetail = LessonPlanSummary & {
   lesson_plan: string;
   citations?: Citation[];
   considered_standards?: ConsideredStandard[];
   standards_were_narrowed?: boolean;
+  provider_request?: ProviderRequest | null;
 };
 
 type GenerateResponse = {
@@ -117,6 +126,7 @@ type GenerateResponse = {
   citations: Citation[];
   considered_standards: ConsideredStandard[];
   standards_were_narrowed?: boolean;
+  provider_request?: ProviderRequest | null;
 };
 
 type CurriculumStandard = {
@@ -156,6 +166,7 @@ type DisplayedPlan = {
   standards_were_narrowed?: boolean;
   title?: string | null;
   created_at?: string;
+  provider_request?: ProviderRequest | null;
 };
 
 /**
@@ -430,6 +441,134 @@ function ConsideredStandardsPanel({
   );
 }
 
+function ProviderRequestPanel({ request }: { request: ProviderRequest | null }) {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  if (!request) {
+    return null;
+  }
+
+  // Mirror the actual Anthropic Messages API payload shape so what the teacher
+  // sees here is the same JSON the backend sent over the wire.
+  const payload = {
+    model: request.model ?? null,
+    max_tokens: request.max_tokens ?? null,
+    system: request.system_prompt,
+    messages: [{ role: "user", content: request.user_prompt }],
+  };
+  const payloadJson = JSON.stringify(payload, null, 2);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(payloadJson);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard unavailable — silently ignore */
+    }
+  };
+
+  return (
+    <Card className="bg-card/50 border-border/50" data-testid="panel-provider-request">
+      <CardContent className="p-5 md:p-6">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          data-testid="button-toggle-provider-request"
+          className="w-full flex items-center justify-between gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md"
+        >
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="text-base font-serif text-foreground">Request sent to AI</h3>
+            <span className="text-xs text-muted-foreground" data-testid="text-provider-summary">
+              {request.provider}
+              {request.model ? ` · ${request.model}` : ""}
+              {request.max_tokens ? ` · max ${request.max_tokens.toLocaleString()} tokens` : ""}
+            </span>
+          </div>
+          <ChevronDown
+            className={cn(
+              "w-4 h-4 text-muted-foreground transition-transform shrink-0",
+              open && "rotate-180",
+            )}
+          />
+        </button>
+
+        {open && (
+          <div className="mt-4 space-y-4">
+            <p className="text-xs text-muted-foreground">
+              The exact payload sent to the AI provider for this plan — useful for debugging
+              hallucinated citations or tweaking the system prompt in
+              <code className="mx-1 px-1 py-0.5 rounded bg-muted text-[11px]">prompts/lesson_plan.txt</code>.
+            </p>
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  System prompt
+                </h4>
+              </div>
+              <pre
+                data-testid="text-system-prompt"
+                className="text-xs leading-relaxed bg-muted/40 border border-border/40 rounded-md p-3 overflow-x-auto whitespace-pre-wrap font-mono max-h-72 overflow-y-auto"
+              >
+                {request.system_prompt}
+              </pre>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  User prompt
+                </h4>
+              </div>
+              <pre
+                data-testid="text-user-prompt"
+                className="text-xs leading-relaxed bg-muted/40 border border-border/40 rounded-md p-3 overflow-x-auto whitespace-pre-wrap font-mono max-h-96 overflow-y-auto"
+              >
+                {request.user_prompt}
+              </pre>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Full payload (JSON)
+                </h4>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleCopy}
+                  data-testid="button-copy-payload"
+                  className="h-7 text-xs"
+                >
+                  {copied ? (
+                    <>
+                      <Check className="w-3 h-3 mr-1" /> Copied
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3 h-3 mr-1" /> Copy JSON
+                    </>
+                  )}
+                </Button>
+              </div>
+              <pre
+                data-testid="text-payload-json"
+                className="text-xs leading-relaxed bg-muted/40 border border-border/40 rounded-md p-3 overflow-x-auto font-mono max-h-72 overflow-y-auto"
+              >
+                {payloadJson}
+              </pre>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function Home() {
   const [copied, setCopied] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -551,6 +690,7 @@ export default function Home() {
         citations: resp.citations ?? [],
         considered_standards: resp.considered_standards ?? [],
         standards_were_narrowed: resp.standards_were_narrowed ?? false,
+        provider_request: resp.provider_request ?? null,
       });
       queryClient.invalidateQueries({ queryKey: ["history"] });
     },
@@ -579,6 +719,7 @@ export default function Home() {
         citations: plan.citations ?? [],
         considered_standards: plan.considered_standards ?? [],
         standards_were_narrowed: plan.standards_were_narrowed ?? false,
+        provider_request: plan.provider_request ?? null,
       });
       setHistoryOpen(false);
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1366,6 +1507,8 @@ export default function Home() {
               narrowed={displayedPlan.standards_were_narrowed ?? false}
               onJumpToCode={jumpToCode}
             />
+
+            <ProviderRequestPanel request={displayedPlan.provider_request ?? null} />
           </div>
         )}
       </div>

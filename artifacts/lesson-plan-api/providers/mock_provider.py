@@ -25,6 +25,10 @@ _GRADE_LINE = re.compile(r"^Grade:\s*(.+)$", re.MULTILINE)
 class MockProvider(LLMProvider):
     """Deterministic fake LLM. See module docstring."""
 
+    name = "mock"
+    model = "mock-deterministic-v1"
+    max_tokens = None  # No token cap — output is fixed-size by template.
+
     def generate(self, system_prompt: str, user_prompt: str, **params) -> str:
         subject = _first_match(_SUBJECT_LINE, user_prompt, default="(unknown subject)")
         grade = _first_match(_GRADE_LINE, user_prompt, default="(unknown grade)")

@@ -14,6 +14,10 @@ class AnthropicProvider(LLMProvider):
     DEFAULT_MODEL = "claude-sonnet-4-6"
     DEFAULT_MAX_TOKENS = 8192
 
+    # Public, read-only metadata that callers can include in API responses
+    # so the frontend can surface the exact request parameters used.
+    name = "anthropic"
+
     def __init__(self, model: str | None = None):
         api_key = os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
@@ -22,12 +26,13 @@ class AnthropicProvider(LLMProvider):
                 "Copy .env.example to .env and add your key, or export the variable."
             )
         self._client = anthropic.Anthropic(api_key=api_key)
-        self._model = model or self.DEFAULT_MODEL
+        self.model = model or self.DEFAULT_MODEL
+        self.max_tokens = self.DEFAULT_MAX_TOKENS
 
     def generate(self, system_prompt: str, user_prompt: str, **params) -> str:
-        max_tokens = params.get("max_tokens", self.DEFAULT_MAX_TOKENS)
+        max_tokens = params.get("max_tokens", self.max_tokens)
         message = self._client.messages.create(
-            model=self._model,
+            model=self.model,
             max_tokens=max_tokens,
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],

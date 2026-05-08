@@ -122,12 +122,27 @@ class ConsideredStandard(BaseModel):
     cited: bool = False
 
 
+class ProviderRequest(BaseModel):
+    """The exact payload that was sent to the LLM provider for this plan.
+
+    Surfaced in the UI so teachers (and contributors) can inspect what the
+    model actually saw — useful for debugging hallucinated citations and
+    iterating on the system prompt.
+    """
+    provider: str
+    model: str | None = None
+    max_tokens: int | None = None
+    system_prompt: str
+    user_prompt: str
+
+
 class GenerateResponse(BaseModel):
     id: int
     lesson_plan: str
     citations: list[Citation]
     considered_standards: list[ConsideredStandard]
     standards_were_narrowed: bool = False
+    provider_request: ProviderRequest | None = None
 
 
 class LessonPlanSummary(BaseModel):
@@ -144,6 +159,7 @@ class LessonPlanDetail(LessonPlanSummary):
     citations: list[Citation] = []
     considered_standards: list[ConsideredStandard] = []
     standards_were_narrowed: bool = False
+    provider_request: ProviderRequest | None = None
 
 
 class HistoryResponse(BaseModel):
@@ -207,6 +223,14 @@ async def generate_lesson_plan(req: GenerateRequest):
 
     lesson_plan = provider.generate(system_prompt, user_prompt)
 
+    provider_request = ProviderRequest(
+        provider=getattr(provider, "name", type(provider).__name__),
+        model=getattr(provider, "model", None),
+        max_tokens=getattr(provider, "max_tokens", None),
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+    )
+
     citations = _validate_codes(lesson_plan, curriculum_rows)
 
     cited_codes = {c.code for c in citations if c.found_in_curriculum}
@@ -228,6 +252,10 @@ async def generate_lesson_plan(req: GenerateRequest):
         citations=[c.model_dump() for c in citations],
         considered_standards=[c.model_dump() for c in considered_standards],
         standards_were_narrowed=standards_were_narrowed,
+        system_prompt=provider_request.system_prompt,
+        user_prompt=provider_request.user_prompt,
+        provider_model=provider_request.model,
+        provider_max_tokens=provider_request.max_tokens,
     )
 
     return GenerateResponse(
@@ -236,6 +264,7 @@ async def generate_lesson_plan(req: GenerateRequest):
         citations=citations,
         considered_standards=considered_standards,
         standards_were_narrowed=standards_were_narrowed,
+        provider_request=provider_request,
     )
 
 

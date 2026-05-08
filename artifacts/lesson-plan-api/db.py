@@ -131,6 +131,10 @@ def save_lesson_plan(
     citations: list[dict] | None = None,
     considered_standards: list[dict] | None = None,
     standards_were_narrowed: bool = False,
+    system_prompt: str | None = None,
+    user_prompt: str | None = None,
+    provider_model: str | None = None,
+    provider_max_tokens: int | None = None,
 ) -> int:
     citations_json = json.dumps(citations) if citations is not None else None
     considered_json = (
@@ -140,11 +144,13 @@ def save_lesson_plan(
         cur = conn.execute(
             """
             INSERT INTO lesson_plans (subject, grade, teacher_request, lesson_plan,
-                                      citations, considered_standards, standards_were_narrowed)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                                      citations, considered_standards, standards_were_narrowed,
+                                      system_prompt, user_prompt, provider_model, provider_max_tokens)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (subject, grade, teacher_request, lesson_plan, citations_json, considered_json,
-             1 if standards_were_narrowed else 0),
+             1 if standards_were_narrowed else 0,
+             system_prompt, user_prompt, provider_model, provider_max_tokens),
         )
         conn.commit()
         return int(cur.lastrowid)
@@ -169,7 +175,9 @@ def get_lesson_plan(plan_id: int) -> dict | None:
         row = conn.execute(
             """
             SELECT id, subject, grade, teacher_request, lesson_plan, citations,
-                   considered_standards, title, standards_were_narrowed, created_at
+                   considered_standards, title, standards_were_narrowed,
+                   system_prompt, user_prompt, provider_model, provider_max_tokens,
+                   created_at
             FROM lesson_plans
             WHERE id = ?
             """,
@@ -191,6 +199,24 @@ def get_lesson_plan(plan_id: int) -> dict | None:
             )
         except (ValueError, TypeError):
             result["considered_standards"] = []
+        # Reshape the flat provider_* columns into a nested provider_request
+        # object so the API response matches the GenerateResponse shape.
+        system_prompt = result.pop("system_prompt", None)
+        user_prompt = result.pop("user_prompt", None)
+        provider_model = result.pop("provider_model", None)
+        provider_max_tokens = result.pop("provider_max_tokens", None)
+        if system_prompt and user_prompt:
+            result["provider_request"] = {
+                # Older rows pre-date the provider name column; infer from the
+                # model string when possible, otherwise fall back to "unknown".
+                "provider": "mock" if (provider_model or "").startswith("mock") else "anthropic",
+                "model": provider_model,
+                "max_tokens": provider_max_tokens,
+                "system_prompt": system_prompt,
+                "user_prompt": user_prompt,
+            }
+        else:
+            result["provider_request"] = None
         return result
 
 
