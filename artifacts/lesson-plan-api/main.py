@@ -17,7 +17,15 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from db import init_db, is_empty, save_lesson_plan, list_lesson_plans, get_lesson_plan
+from db import (
+    init_db,
+    is_empty,
+    save_lesson_plan,
+    list_lesson_plans,
+    get_lesson_plan,
+    delete_lesson_plan,
+    update_lesson_plan_title,
+)
 from ingest import load_from_json, ingest, SAMPLE_JSON
 from retrieval import get_curriculum
 from prompt_builder import build_prompt
@@ -103,6 +111,7 @@ class LessonPlanSummary(BaseModel):
     subject: str
     grade: str
     teacher_request: str
+    title: str | None = None
     created_at: str
 
 
@@ -113,6 +122,10 @@ class LessonPlanDetail(LessonPlanSummary):
 
 class HistoryResponse(BaseModel):
     plans: list[LessonPlanSummary]
+
+
+class UpdatePlanRequest(BaseModel):
+    title: str | None = None
 
 
 @app.get("/healthz")
@@ -166,6 +179,7 @@ async def history(limit: int = 50):
             subject=r["subject"],
             grade=r["grade"],
             teacher_request=r["teacher_request"],
+            title=r.get("title"),
             created_at=r["created_at"],
         )
         for r in rows
@@ -175,6 +189,25 @@ async def history(limit: int = 50):
 
 @app.get("/history/{plan_id}", response_model=LessonPlanDetail)
 async def history_detail(plan_id: int):
+    row = get_lesson_plan(plan_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Lesson plan not found.")
+    return LessonPlanDetail(**row)
+
+
+@app.delete("/history/{plan_id}")
+async def history_delete(plan_id: int):
+    if not delete_lesson_plan(plan_id):
+        raise HTTPException(status_code=404, detail="Lesson plan not found.")
+    return {"status": "deleted", "id": plan_id}
+
+
+@app.patch("/history/{plan_id}", response_model=LessonPlanDetail)
+async def history_update(plan_id: int, req: UpdatePlanRequest):
+    if req.title is not None and len(req.title) > 200:
+        raise HTTPException(status_code=422, detail="Title must be 200 characters or fewer.")
+    if not update_lesson_plan_title(plan_id, req.title):
+        raise HTTPException(status_code=404, detail="Lesson plan not found.")
     row = get_lesson_plan(plan_id)
     if not row:
         raise HTTPException(status_code=404, detail="Lesson plan not found.")

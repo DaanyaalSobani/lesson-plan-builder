@@ -15,6 +15,9 @@ import {
   History,
   FileText,
   Download,
+  Pencil,
+  Trash2,
+  X,
 } from "lucide-react";
 
 import {
@@ -54,6 +57,17 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Input } from "@/components/ui/input";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const formSchema = z.object({
   subject: z.string().min(1, "Please select a subject."),
@@ -68,6 +82,7 @@ type LessonPlanSummary = {
   subject: string;
   grade: string;
   teacher_request: string;
+  title?: string | null;
   created_at: string;
 };
 
@@ -95,6 +110,7 @@ type DisplayedPlan = {
   teacher_request: string;
   lesson_plan: string;
   citations: Citation[];
+  title?: string | null;
   created_at?: string;
 };
 
@@ -210,6 +226,10 @@ export default function Home() {
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [displayedPlan, setDisplayedPlan] = useState<DisplayedPlan | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
+  const [historyActionError, setHistoryActionError] = useState<string | null>(null);
   const outputRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
 
@@ -268,6 +288,68 @@ export default function Home() {
       window.scrollTo({ top: 0, behavior: "smooth" });
     },
   });
+
+  const renameMutation = useMutation({
+    mutationFn: async (vars: { id: number; title: string | null }): Promise<LessonPlanDetail> => {
+      const res = await fetch(`/lesson-api/history/${vars.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: vars.title }),
+      });
+      if (!res.ok) throw new Error((await res.text()) || "Failed to rename plan");
+      return res.json();
+    },
+    onSuccess: (plan) => {
+      setRenamingId(null);
+      setRenameDraft("");
+      setHistoryActionError(null);
+      queryClient.invalidateQueries({ queryKey: ["history"] });
+      setDisplayedPlan((curr) =>
+        curr && curr.id === plan.id ? { ...curr, title: plan.title } : curr,
+      );
+    },
+    onError: (err) => {
+      setHistoryActionError(err instanceof Error ? err.message : "Could not rename plan.");
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number): Promise<number> => {
+      const res = await fetch(`/lesson-api/history/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error((await res.text()) || "Failed to delete plan");
+      return id;
+    },
+    onSuccess: (id) => {
+      setPendingDeleteId(null);
+      setHistoryActionError(null);
+      queryClient.invalidateQueries({ queryKey: ["history"] });
+      setDisplayedPlan((curr) => (curr && curr.id === id ? null : curr));
+    },
+    onError: (err) => {
+      setHistoryActionError(err instanceof Error ? err.message : "Could not delete plan.");
+    },
+  });
+
+  function startRename(plan: LessonPlanSummary) {
+    setHistoryActionError(null);
+    setRenamingId(plan.id);
+    setRenameDraft(plan.title ?? "");
+  }
+
+  function cancelRename() {
+    setRenamingId(null);
+    setRenameDraft("");
+  }
+
+  function submitRename(id: number) {
+    const trimmed = renameDraft.trim();
+    renameMutation.mutate({ id, title: trimmed.length === 0 ? null : trimmed });
+  }
+
+  const pendingDeletePlan =
+    pendingDeleteId != null
+      ? historyQuery.data?.find((p) => p.id === pendingDeleteId) ?? null
+      : null;
 
   function onSubmit(data: FormValues) {
     generateMutation.mutate(data);
@@ -413,35 +495,187 @@ export default function Home() {
                       No lesson plans saved yet. Generate one to get started.
                     </div>
                   )}
+                  {historyActionError && (
+                    <Alert variant="destructive" className="mb-3" data-testid="alert-history-action-error">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription>{historyActionError}</AlertDescription>
+                    </Alert>
+                  )}
                   {historyQuery.data && historyQuery.data.length > 0 && (
                     <ul className="space-y-2 pb-4" data-testid="list-history">
-                      {historyQuery.data.map((p) => (
-                        <li key={p.id}>
-                          <button
-                            type="button"
-                            onClick={() => loadPlanMutation.mutate(p.id)}
-                            disabled={loadPlanMutation.isPending}
-                            data-testid={`button-history-item-${p.id}`}
-                            className="w-full text-left p-3 rounded-lg border border-border/60 bg-card/50 hover:bg-accent hover:border-border transition-colors disabled:opacity-50"
+                      {historyQuery.data.map((p) => {
+                        const isRenaming = renamingId === p.id;
+                        const isSavingRename = isRenaming && renameMutation.isPending;
+                        return (
+                          <li
+                            key={p.id}
+                            className="p-3 rounded-lg border border-border/60 bg-card/50 hover:border-border transition-colors"
                           >
-                            <div className="flex items-center gap-2 mb-1">
+                            <div className="flex items-center gap-2 mb-2">
                               <Badge variant="secondary" className="text-xs">{p.subject}</Badge>
                               <Badge variant="outline" className="text-xs">Grade {p.grade}</Badge>
                               <span className="ml-auto text-xs text-muted-foreground">
                                 {formatTimestamp(p.created_at)}
                               </span>
                             </div>
-                            <p className="text-sm text-foreground line-clamp-2">
-                              {p.teacher_request}
-                            </p>
-                          </button>
-                        </li>
-                      ))}
+                            {isRenaming ? (
+                              <div className="space-y-2">
+                                <Input
+                                  autoFocus
+                                  value={renameDraft}
+                                  onChange={(e) => setRenameDraft(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      e.preventDefault();
+                                      submitRename(p.id);
+                                    } else if (e.key === "Escape") {
+                                      e.preventDefault();
+                                      cancelRename();
+                                    }
+                                  }}
+                                  maxLength={200}
+                                  placeholder="Give this plan a title…"
+                                  disabled={isSavingRename}
+                                  data-testid={`input-rename-${p.id}`}
+                                  className="h-8 text-sm"
+                                />
+                                <div className="flex items-center gap-2">
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    onClick={() => submitRename(p.id)}
+                                    disabled={isSavingRename}
+                                    data-testid={`button-rename-save-${p.id}`}
+                                  >
+                                    {isSavingRename ? (
+                                      <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                                    ) : (
+                                      <Check className="w-3.5 h-3.5 mr-1.5" />
+                                    )}
+                                    Save
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={cancelRename}
+                                    disabled={isSavingRename}
+                                    data-testid={`button-rename-cancel-${p.id}`}
+                                  >
+                                    <X className="w-3.5 h-3.5 mr-1.5" />
+                                    Cancel
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => loadPlanMutation.mutate(p.id)}
+                                  disabled={loadPlanMutation.isPending}
+                                  data-testid={`button-history-item-${p.id}`}
+                                  className="w-full text-left rounded-md hover-elevate disabled:opacity-50"
+                                >
+                                  {p.title ? (
+                                    <p
+                                      className="text-sm font-medium text-foreground line-clamp-2"
+                                      data-testid={`text-history-title-${p.id}`}
+                                    >
+                                      {p.title}
+                                    </p>
+                                  ) : null}
+                                  <p
+                                    className={
+                                      p.title
+                                        ? "text-xs text-muted-foreground line-clamp-2 mt-1"
+                                        : "text-sm text-foreground line-clamp-2"
+                                    }
+                                  >
+                                    {p.teacher_request}
+                                  </p>
+                                </button>
+                                <div className="flex items-center gap-1 mt-2">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                                    onClick={() => startRename(p)}
+                                    data-testid={`button-history-rename-${p.id}`}
+                                  >
+                                    <Pencil className="w-3.5 h-3.5 mr-1.5" />
+                                    Rename
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs text-destructive hover:text-destructive"
+                                    onClick={() => {
+                                      setHistoryActionError(null);
+                                      setPendingDeleteId(p.id);
+                                    }}
+                                    data-testid={`button-history-delete-${p.id}`}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+                                    Delete
+                                  </Button>
+                                </div>
+                              </>
+                            )}
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
                 </ScrollArea>
               </SheetContent>
             </Sheet>
+            <AlertDialog
+              open={pendingDeleteId !== null}
+              onOpenChange={(open) => {
+                if (!open && !deleteMutation.isPending) {
+                  setPendingDeleteId(null);
+                }
+              }}
+            >
+              <AlertDialogContent data-testid="dialog-delete-confirm">
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete this lesson plan?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {pendingDeletePlan?.title
+                      ? `"${pendingDeletePlan.title}" will be permanently removed.`
+                      : "This plan will be permanently removed and can't be recovered."}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel
+                    disabled={deleteMutation.isPending}
+                    data-testid="button-delete-cancel"
+                  >
+                    Cancel
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    disabled={deleteMutation.isPending}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      if (pendingDeleteId != null) deleteMutation.mutate(pendingDeleteId);
+                    }}
+                    data-testid="button-delete-confirm"
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    {deleteMutation.isPending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Deleting…
+                      </>
+                    ) : (
+                      "Delete"
+                    )}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
           <div className="h-16 w-16 bg-primary/10 rounded-2xl flex items-center justify-center border border-primary/20">
             <BookOpen className="w-8 h-8 text-primary" />
@@ -565,8 +799,10 @@ export default function Home() {
           <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20">
             <div className="flex items-center justify-between px-2 gap-4 flex-wrap">
               <div className="flex items-center gap-2">
-                <h2 className="text-xl font-serif text-foreground">
-                  {generateMutation.isSuccess && generateMutation.data?.id === displayedPlan.id
+                <h2 className="text-xl font-serif text-foreground" data-testid="text-displayed-plan-heading">
+                  {displayedPlan.title
+                    ? displayedPlan.title
+                    : generateMutation.isSuccess && generateMutation.data?.id === displayedPlan.id
                     ? "Generated Plan"
                     : "Saved Plan"}
                 </h2>

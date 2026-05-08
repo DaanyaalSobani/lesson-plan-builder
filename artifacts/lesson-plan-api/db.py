@@ -36,15 +36,18 @@ def init_db() -> None:
                 teacher_request  TEXT NOT NULL,
                 lesson_plan      TEXT NOT NULL,
                 citations        TEXT,
+                title            TEXT,
                 created_at       TEXT NOT NULL DEFAULT (datetime('now'))
             )
             """
         )
-        # Inline migration: add citations column if upgrading from an older schema
-        # that pre-dates Task #9. Safe to run on every startup.
+        # Inline migrations: add columns if upgrading from an older schema.
+        # Safe to run on every startup.
         cols = {row["name"] for row in conn.execute("PRAGMA table_info(lesson_plans)").fetchall()}
         if "citations" not in cols:
             conn.execute("ALTER TABLE lesson_plans ADD COLUMN citations TEXT")
+        if "title" not in cols:
+            conn.execute("ALTER TABLE lesson_plans ADD COLUMN title TEXT")
         conn.commit()
 
 
@@ -74,7 +77,7 @@ def list_lesson_plans(limit: int = 50) -> list[dict]:
     with get_connection() as conn:
         rows = conn.execute(
             """
-            SELECT id, subject, grade, teacher_request, created_at
+            SELECT id, subject, grade, teacher_request, title, created_at
             FROM lesson_plans
             ORDER BY datetime(created_at) DESC, id DESC
             LIMIT ?
@@ -92,7 +95,7 @@ def get_lesson_plan(plan_id: int) -> dict | None:
     with get_connection() as conn:
         row = conn.execute(
             """
-            SELECT id, subject, grade, teacher_request, lesson_plan, citations, created_at
+            SELECT id, subject, grade, teacher_request, lesson_plan, citations, title, created_at
             FROM lesson_plans
             WHERE id = ?
             """,
@@ -107,6 +110,28 @@ def get_lesson_plan(plan_id: int) -> dict | None:
         except (ValueError, TypeError):
             result["citations"] = []
         return result
+
+
+def delete_lesson_plan(plan_id: int) -> bool:
+    """Delete a lesson plan by id. Returns True if a row was removed."""
+    with get_connection() as conn:
+        cur = conn.execute("DELETE FROM lesson_plans WHERE id = ?", (plan_id,))
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def update_lesson_plan_title(plan_id: int, title: str | None) -> bool:
+    """Update the title of a lesson plan. Pass None or empty string to clear it. Returns True if the row exists."""
+    normalized = title.strip() if isinstance(title, str) else None
+    if normalized == "":
+        normalized = None
+    with get_connection() as conn:
+        cur = conn.execute(
+            "UPDATE lesson_plans SET title = ? WHERE id = ?",
+            (normalized, plan_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0
 
 
 def is_empty() -> bool:
