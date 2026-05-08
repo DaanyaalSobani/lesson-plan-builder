@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -13,6 +13,7 @@ import {
   Check,
   History,
   FileText,
+  Download,
 } from "lucide-react";
 
 import {
@@ -91,8 +92,11 @@ function formatTimestamp(iso: string): string {
 
 export default function Home() {
   const [copied, setCopied] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const [displayedPlan, setDisplayedPlan] = useState<DisplayedPlan | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const outputRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
 
   const form = useForm<FormValues>({
@@ -159,6 +163,64 @@ export default function Home() {
       navigator.clipboard.writeText(displayedPlan.lesson_plan);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const slugify = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40) || "plan";
+
+  const downloadPdf = async () => {
+    if (!displayedPlan || !outputRef.current) return;
+    setDownloading(true);
+    setDownloadError(null);
+    try {
+      const html2pdf = (await import("html2pdf.js")).default;
+      const rendered = outputRef.current.innerHTML;
+      const safe = (s: string) =>
+        s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const container = document.createElement("div");
+      container.style.cssText =
+        "padding:32px 36px;font-family:Georgia,'Times New Roman',serif;color:#1f2937;line-height:1.55;font-size:12pt;background:#ffffff;width:760px;";
+      container.innerHTML = `
+        <div style="border-bottom:1px solid #d4d4d8;padding-bottom:16px;margin-bottom:20px;">
+          <h1 style="font-size:22pt;margin:0 0 12px 0;color:#0f172a;">Lesson Plan</h1>
+          <div style="font-size:11pt;color:#374151;margin-bottom:4px;"><strong>Subject:</strong> ${safe(displayedPlan.subject)}</div>
+          <div style="font-size:11pt;color:#374151;margin-bottom:4px;"><strong>Grade:</strong> ${safe(displayedPlan.grade)}</div>
+          ${displayedPlan.created_at ? `<div style="font-size:11pt;color:#374151;margin-bottom:8px;"><strong>Saved:</strong> ${safe(formatTimestamp(displayedPlan.created_at))}</div>` : ""}
+          <div style="font-size:11pt;color:#374151;margin-top:8px;"><strong>Request:</strong><div style="margin-top:4px;white-space:pre-wrap;">${safe(displayedPlan.teacher_request)}</div></div>
+        </div>
+        <div class="lp-pdf-body">${rendered}</div>
+        <style>
+          .lp-pdf-body h1{font-size:18pt;margin:18px 0 8px;color:#0f172a;}
+          .lp-pdf-body h2{font-size:15pt;margin:16px 0 6px;color:#0f172a;}
+          .lp-pdf-body h3{font-size:13pt;margin:14px 0 4px;color:#1f2937;}
+          .lp-pdf-body p{margin:0 0 8px;}
+          .lp-pdf-body ul,.lp-pdf-body ol{margin:0 0 10px 22px;padding:0;}
+          .lp-pdf-body li{margin:0 0 4px;}
+          .lp-pdf-body strong{color:#0f172a;}
+          .lp-pdf-body code{font-family:'Courier New',monospace;background:#f1f5f9;padding:1px 4px;border-radius:3px;}
+          .lp-pdf-body blockquote{border-left:3px solid #cbd5e1;padding-left:10px;color:#475569;margin:0 0 10px;}
+        </style>
+      `;
+      const filename = `lesson-plan-${slugify(displayedPlan.subject)}-grade-${slugify(displayedPlan.grade)}-${displayedPlan.id}.pdf`;
+      await html2pdf()
+        .set({
+          margin: [10, 10, 10, 10],
+          filename,
+          image: { type: "jpeg", quality: 0.98 },
+          html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
+          jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+        })
+        .from(container)
+        .save();
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : "Could not generate the PDF. Please try again.");
+    } finally {
+      setDownloading(false);
     }
   };
 
@@ -372,20 +434,44 @@ export default function Home() {
                   </span>
                 )}
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={copyToClipboard}
-                className="text-muted-foreground hover:text-foreground"
-                data-testid="button-copy"
-              >
-                {copied ? <Check className="w-4 h-4 mr-2 text-green-600" /> : <Copy className="w-4 h-4 mr-2" />}
-                {copied ? "Copied" : "Copy to clipboard"}
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={copyToClipboard}
+                  className="text-muted-foreground hover:text-foreground"
+                  data-testid="button-copy"
+                >
+                  {copied ? <Check className="w-4 h-4 mr-2 text-green-600" /> : <Copy className="w-4 h-4 mr-2" />}
+                  {copied ? "Copied" : "Copy"}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={downloadPdf}
+                  disabled={downloading}
+                  className="text-muted-foreground hover:text-foreground"
+                  data-testid="button-download-pdf"
+                >
+                  {downloading ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4 mr-2" />
+                  )}
+                  {downloading ? "Preparing…" : "Download PDF"}
+                </Button>
+              </div>
             </div>
+            {downloadError && (
+              <Alert variant="destructive" data-testid="alert-download-error">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Couldn't download PDF</AlertTitle>
+                <AlertDescription>{downloadError}</AlertDescription>
+              </Alert>
+            )}
             <Separator />
             <Card className="bg-card shadow-sm border-border/50">
-              <CardContent className="p-6 md:p-10 prose prose-sage max-w-none prose-headings:font-serif prose-p:leading-relaxed" data-testid="output-area">
+              <CardContent ref={outputRef} className="p-6 md:p-10 prose prose-sage max-w-none prose-headings:font-serif prose-p:leading-relaxed" data-testid="output-area">
                 <ReactMarkdown>
                   {displayedPlan.lesson_plan}
                 </ReactMarkdown>
