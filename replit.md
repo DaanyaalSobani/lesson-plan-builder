@@ -1,45 +1,58 @@
-# [Project name]
+# Lesson Plan Generator
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+A teacher tool that generates standards-aligned lesson plans using AI. Teachers select a subject and grade, describe what they want to teach, and receive a fully structured lesson plan grounded in curriculum standards from a local SQLite database.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- `artifacts/lesson-planner: web` workflow — React frontend (port 24954, preview at `/`)
+- `Python Backend` workflow — FastAPI backend (port 8000)
+- `artifacts/api-server: API Server` workflow — Node.js/Express API server (port 8080, path `/api`)
+- Required env: `ANTHROPIC_API_KEY` — Anthropic Claude API key
 
 ## Stack
 
-- pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- **Frontend:** React + Vite + Tailwind CSS + shadcn/ui, react-hook-form + zod, TanStack Query
+- **Backend:** Python FastAPI + Uvicorn, Anthropic SDK, SQLite
+- **Monorepo:** pnpm workspaces, Node.js 24, TypeScript 5.9
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/lesson-planner/` — React frontend
+- `artifacts/lesson-plan-api/` — Python FastAPI backend
+  - `main.py` — FastAPI app, startup hook, `/generate` endpoint
+  - `db.py` — SQLite schema and helpers (`curriculum.db` auto-created)
+  - `ingest.py` — Loads `sample_curriculum.json` into the DB
+  - `retrieval.py` — Curriculum lookup by subject + grade
+  - `prompt_builder.py` — Assembles system + user prompts
+  - `providers/base.py` — Abstract `LLMProvider` base class
+  - `providers/anthropic_provider.py` — Anthropic Claude implementation
+  - `prompts/lesson_plan.txt` — **Editable system prompt** (changes apply without restart)
+  - `sample_curriculum.json` — ELA, Math, Science standards for grades 3–5
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- LLM provider is abstracted behind `providers/base.py` — adding OpenAI requires only a new file
+- System prompt lives in `prompts/lesson_plan.txt` and is loaded at request time (no restart needed)
+- SQLite is used for the curriculum store — simple, file-based, no infrastructure needed
+- The provider is lazy-loaded so the server starts cleanly even if `ANTHROPIC_API_KEY` is missing (returns a 503 at request time instead of crashing)
+- Vite dev-server proxies `/lesson-api/*` → `http://localhost:8000/*` so the frontend and backend are served from the same origin in development
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+Teachers select **Subject** (ELA / Math / Science), **Grade Level** (3 / 4 / 5), and type a free-form request. The backend retrieves matching curriculum standards from SQLite, builds a structured prompt, calls Claude, validates the response for hallucinated standard codes, and returns a markdown lesson plan.
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+_Populate as you build._
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Edit `prompts/lesson_plan.txt` to change the system prompt — no restart needed
+- Run `python ingest.py` inside `artifacts/lesson-plan-api/` to re-seed the curriculum DB
+- To add a new LLM provider, subclass `LLMProvider` in `providers/` and swap it in `main.py`
+- `curriculum.db` is created at `artifacts/lesson-plan-api/curriculum.db` on first run
 
 ## Pointers
 
 - See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
+- Backend README: `artifacts/lesson-plan-api/README.md`
