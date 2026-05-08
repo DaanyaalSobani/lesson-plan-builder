@@ -77,8 +77,8 @@ def init_db() -> None:
             conn.execute("ALTER TABLE lesson_plans ADD COLUMN considered_standards TEXT")
         if "title" not in plan_cols:
             conn.execute("ALTER TABLE lesson_plans ADD COLUMN title TEXT")
-        if "provider_name" not in plan_cols:
-            conn.execute("ALTER TABLE lesson_plans ADD COLUMN provider_name TEXT")
+        # Note: provider_name is added by migration 003_add_provider_name.sql,
+        # not inline here, to avoid a duplicate-column conflict at startup.
         curr_cols = {row["name"] for row in conn.execute(
             "PRAGMA table_info(curriculum)"
         ).fetchall()}
