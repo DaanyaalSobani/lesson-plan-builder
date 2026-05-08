@@ -58,7 +58,14 @@ The `{tone}` placeholder is filled in at request time. You can add more placehol
 
 1. Create `providers/your_provider.py` subclassing `LLMProvider` from `providers/base.py`.
 2. Implement the `generate(system_prompt, user_prompt, **params) -> str` method.
-3. In `main.py`, replace `AnthropicProvider()` with `YourProvider()`.
+3. Add a branch for it in `main._create_provider`, and set `PROVIDER=your_name` in the environment.
+
+### Built-in providers
+
+| `PROVIDER` | Class | Notes |
+|------------|-------|-------|
+| `anthropic` (default) | `AnthropicProvider` | Calls Claude via the Anthropic Messages API. Requires `ANTHROPIC_API_KEY`. |
+| `mock` | `MockProvider` | Deterministic, offline. No API key required. Returns a complete nine-section lesson plan with `[CODE]` markers drawn from the actual standards block in the user prompt, so the citation validator passes and the Considered Standards panel populates. Use it for tests and for running the app locally without a key:<br>`PROVIDER=mock uvicorn main:app --reload` |
 
 ## Ingest script
 

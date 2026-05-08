@@ -237,6 +237,18 @@ interface. To use a different model, drop a new file in `providers/`,
 add a branch in `main._create_provider`, and set the `PROVIDER` env var.
 Nothing else changes — the prompts are model-agnostic.
 
+Two providers ship today:
+
+| `PROVIDER` value | Implementation | Notes |
+|------------------|----------------|-------|
+| `anthropic` (default) | `providers/anthropic_provider.py` | Calls Claude. Requires `ANTHROPIC_API_KEY`. |
+| `mock`           | `providers/mock_provider.py`      | Deterministic, offline. No API key needed. Returns a fully-formed nine-section plan with `[CODE]` markers parsed from the standards block in the user prompt, so the citation validator and Considered Standards panel both light up. Used by `tests/test_mock_provider.py` and handy for running the app locally without a key. |
+
+```bash
+# Run the backend with no Anthropic key, no network calls:
+PROVIDER=mock uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
+
 ---
 
 ## Curriculum ingestion

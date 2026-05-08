@@ -62,6 +62,11 @@ def _create_provider() -> LLMProvider:
     if provider_name == "anthropic":
         from providers.anthropic_provider import AnthropicProvider
         return AnthropicProvider()
+    if provider_name == "mock":
+        # Deterministic, offline provider — no API key required. Used for tests
+        # and for running the app locally without an Anthropic key.
+        from providers.mock_provider import MockProvider
+        return MockProvider()
     raise ValueError(f"Unknown provider: {provider_name!r}. Set PROVIDER env var to a supported value.")
 
 
