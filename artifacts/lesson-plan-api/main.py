@@ -268,18 +268,20 @@ async def curriculum_summary_endpoint():
     totals_row = curriculum_totals()
     is_empty = totals_row["total_standards"] == 0
 
-    # Compute cross-product gaps. The Generate dropdown only ever advertises
-    # combinations present in `buckets`, but if one subject covers grades 3-5
-    # while another only covers 3, that asymmetry is still worth surfacing as
-    # an amber pipeline-health signal so admins know coverage is uneven.
-    present = {(b.subject, b.grade) for b in buckets}
-    all_subjects = sorted({b.subject for b in buckets})
-    all_grades = sorted({b.grade for b in buckets})
+    # Health status follows the task spec exactly:
+    #   red   = curriculum table empty
+    #   amber = the dropdown advertises a (subject, grade) combination with
+    #           zero rows in the DB
+    #   green = every advertised (subject, grade) has at least one standard
+    #
+    # Because the dropdown is now data-driven from `buckets` (which are built
+    # from a GROUP BY that only emits combinations with count >= 1), amber is
+    # not reachable in the normal data path. We still detect it defensively in
+    # case a future change advertises combinations from a different source.
     missing = [
-        MissingCombination(subject=s, grade=g)
-        for s in all_subjects
-        for g in all_grades
-        if (s, g) not in present
+        MissingCombination(subject=b.subject, grade=b.grade)
+        for b in buckets
+        if b.count == 0
     ]
 
     if is_empty:
