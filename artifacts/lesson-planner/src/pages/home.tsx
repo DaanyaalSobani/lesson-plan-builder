@@ -45,7 +45,8 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { Badge } from "@/components/ui/badge";
+import { Badge, badgeVariants } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Tooltip,
@@ -111,7 +112,13 @@ function formatTimestamp(iso: string): string {
   });
 }
 
-function CitationsPanel({ citations }: { citations: Citation[] }) {
+function CitationsPanel({
+  citations,
+  onJumpToCode,
+}: {
+  citations: Citation[];
+  onJumpToCode: (code: string) => void;
+}) {
   const verifiedCount = citations.filter((c) => c.found_in_curriculum).length;
   const unverifiedCount = citations.length - verifiedCount;
 
@@ -133,49 +140,64 @@ function CitationsPanel({ citations }: { citations: Citation[] }) {
             This plan does not cite any specific curriculum standards.
           </p>
         ) : (
-          <TooltipProvider delayDuration={150}>
-            <ul className="flex flex-wrap gap-2" data-testid="list-citations">
-              {citations.map((c) => {
-                const chip = c.found_in_curriculum ? (
-                  <Tooltip key={c.code}>
-                    <TooltipTrigger asChild>
-                      <Badge
-                        variant="secondary"
-                        className="font-mono text-xs cursor-help"
-                        data-testid={`citation-chip-${c.code}`}
-                        data-verified="true"
-                      >
-                        {c.code}
-                      </Badge>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="max-w-xs">
-                      <p className="text-xs leading-snug">{c.description}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                ) : (
-                  <Tooltip key={c.code}>
-                    <TooltipTrigger asChild>
-                      <Badge
-                        variant="outline"
-                        className="font-mono text-xs cursor-help border-amber-500/60 text-amber-700 dark:text-amber-400 gap-1"
-                        data-testid={`citation-chip-${c.code}`}
-                        data-verified="false"
-                      >
-                        <AlertTriangle className="w-3 h-3" />
-                        {c.code}
-                      </Badge>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="max-w-xs">
-                      <p className="text-xs leading-snug">
-                        This standard code was not found in the curriculum database — please verify manually.
-                      </p>
-                    </TooltipContent>
-                  </Tooltip>
-                );
-                return <li key={c.code}>{chip}</li>;
-              })}
-            </ul>
-          </TooltipProvider>
+          <>
+            <p className="text-xs text-muted-foreground mb-3">
+              Click any code to jump to where it appears in the plan above.
+            </p>
+            <TooltipProvider delayDuration={150}>
+              <ul className="flex flex-wrap gap-2" data-testid="list-citations">
+                {citations.map((c) => {
+                  const baseClasses =
+                    "font-mono text-xs cursor-pointer hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 transition-opacity";
+                  const chip = c.found_in_curriculum ? (
+                    <Tooltip key={c.code}>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={() => onJumpToCode(c.code)}
+                          data-testid={`citation-chip-${c.code}`}
+                          data-verified="true"
+                          aria-label={`Jump to ${c.code} in the plan`}
+                          className={cn(badgeVariants({ variant: "secondary" }), baseClasses)}
+                        >
+                          {c.code}
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-xs">
+                        <p className="text-xs leading-snug">{c.description}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    <Tooltip key={c.code}>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={() => onJumpToCode(c.code)}
+                          data-testid={`citation-chip-${c.code}`}
+                          data-verified="false"
+                          aria-label={`Jump to ${c.code} in the plan (unverified)`}
+                          className={cn(
+                            badgeVariants({ variant: "outline" }),
+                            baseClasses,
+                            "border-amber-500/60 text-amber-700 dark:text-amber-400 gap-1",
+                          )}
+                        >
+                          <AlertTriangle className="w-3 h-3" />
+                          {c.code}
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-xs">
+                        <p className="text-xs leading-snug">
+                          This standard code was not found in the curriculum database — please verify manually.
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                  return <li key={c.code}>{chip}</li>;
+                })}
+              </ul>
+            </TooltipProvider>
+          </>
         )}
       </CardContent>
     </Card>
@@ -256,6 +278,35 @@ export default function Home() {
       navigator.clipboard.writeText(displayedPlan.lesson_plan);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const jumpToCode = (code: string) => {
+    const root = outputRef.current;
+    if (!root) return;
+    const needle = `[${code}]`;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let node: Node | null = walker.nextNode();
+    while (node) {
+      if (node.nodeValue && node.nodeValue.includes(needle)) {
+        const parent = node.parentElement;
+        if (parent) {
+          parent.scrollIntoView({ behavior: "smooth", block: "center" });
+          const prev = parent.style.transition;
+          const prevBg = parent.style.backgroundColor;
+          parent.style.transition = "background-color 200ms ease-in";
+          parent.style.backgroundColor = "rgba(250, 204, 21, 0.35)";
+          window.setTimeout(() => {
+            parent.style.transition = "background-color 800ms ease-out";
+            parent.style.backgroundColor = prevBg;
+            window.setTimeout(() => {
+              parent.style.transition = prev;
+            }, 850);
+          }, 600);
+        }
+        return;
+      }
+      node = walker.nextNode();
     }
   };
 
@@ -571,7 +622,7 @@ export default function Home() {
               </CardContent>
             </Card>
 
-            <CitationsPanel citations={displayedPlan.citations} />
+            <CitationsPanel citations={displayedPlan.citations} onJumpToCode={jumpToCode} />
           </div>
         )}
       </div>
