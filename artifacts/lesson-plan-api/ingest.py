@@ -41,17 +41,24 @@ def load_from_json(json_path: str) -> list[dict]:
 
 
 def ingest(records: list[dict]) -> int:
-    """Insert records into the curriculum table, skipping duplicates. Returns count inserted."""
+    """Insert records into the curriculum table, skipping duplicates. Returns count inserted.
+
+    Sets ``ingested_at`` explicitly so DBs that were migrated from an older
+    schema (where the column was added without a DB-level default) still get
+    a real timestamp on every new insert.
+    """
+    import datetime
+    now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     inserted = 0
     with get_connection() as conn:
         for r in records:
             try:
                 conn.execute(
                     """
-                    INSERT INTO curriculum (subject, grade, standard_code, strand, description, source_version)
-                    VALUES (:subject, :grade, :standard_code, :strand, :description, :source_version)
+                    INSERT INTO curriculum (subject, grade, standard_code, strand, description, source_version, ingested_at)
+                    VALUES (:subject, :grade, :standard_code, :strand, :description, :source_version, :ingested_at)
                     """,
-                    r,
+                    {**r, "ingested_at": now},
                 )
                 inserted += 1
             except sqlite3.IntegrityError:

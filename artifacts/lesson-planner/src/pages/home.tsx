@@ -1,4 +1,5 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { Link } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -18,6 +19,7 @@ import {
   Pencil,
   Trash2,
   X,
+  Database,
 } from "lucide-react";
 
 import {
@@ -101,6 +103,26 @@ type GenerateResponse = {
   id: number;
   lesson_plan: string;
   citations: Citation[];
+};
+
+type CurriculumBucket = {
+  subject: string;
+  grade: string;
+  count: number;
+  source_versions: string[];
+  last_ingested: string | null;
+};
+
+type CurriculumSummary = {
+  buckets: CurriculumBucket[];
+  totals: {
+    total_standards: number;
+    total_subjects: number;
+    total_grades: number;
+    total_strands: number;
+    last_ingested: string | null;
+    is_empty: boolean;
+  };
 };
 
 type DisplayedPlan = {
@@ -241,6 +263,46 @@ export default function Home() {
       teacher_request: "",
     },
   });
+
+  const summaryQuery = useQuery({
+    queryKey: ["curriculum-summary"],
+    queryFn: async (): Promise<CurriculumSummary> => {
+      const res = await fetch("/lesson-api/curriculum/summary");
+      if (!res.ok) throw new Error("Failed to load curriculum summary");
+      return res.json();
+    },
+  });
+
+  const subjects = useMemo(() => {
+    const set = new Set<string>();
+    summaryQuery.data?.buckets.forEach((b) => set.add(b.subject));
+    return Array.from(set).sort();
+  }, [summaryQuery.data]);
+
+  const selectedSubject = form.watch("subject");
+  const selectedGrade = form.watch("grade");
+
+  const gradesForSubject = useMemo(() => {
+    if (!selectedSubject) return [] as string[];
+    const set = new Set<string>();
+    summaryQuery.data?.buckets
+      .filter((b) => b.subject === selectedSubject)
+      .forEach((b) => set.add(b.grade));
+    return Array.from(set).sort((a, b) => {
+      const na = Number(a);
+      const nb = Number(b);
+      if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+      return a.localeCompare(b);
+    });
+  }, [summaryQuery.data, selectedSubject]);
+
+  const standardsCount = useMemo(() => {
+    if (!selectedSubject || !selectedGrade) return null;
+    const bucket = summaryQuery.data?.buckets.find(
+      (b) => b.subject === selectedSubject && b.grade === selectedGrade,
+    );
+    return bucket ? bucket.count : 0;
+  }, [summaryQuery.data, selectedSubject, selectedGrade]);
 
   const generateMutation = useMutation({
     mutationFn: async (data: FormValues): Promise<GenerateResponse> => {
@@ -456,7 +518,18 @@ export default function Home() {
 
         {/* Header */}
         <header className="flex flex-col items-center text-center space-y-4 pt-8 pb-4 relative">
-          <div className="absolute right-0 top-8">
+          <div className="absolute right-0 top-8 flex items-center gap-2">
+            <Link href="/curriculum">
+              <Button
+                variant="outline"
+                size="sm"
+                data-testid="button-open-curriculum"
+                className="gap-2"
+              >
+                <Database className="w-4 h-4" />
+                Curriculum
+              </Button>
+            </Link>
             <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
               <SheetTrigger asChild>
                 <Button
@@ -701,16 +774,36 @@ export default function Home() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Subject</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <Select
+                          onValueChange={(v) => {
+                            field.onChange(v);
+                            const stillValid = summaryQuery.data?.buckets.some(
+                              (b) => b.subject === v && b.grade === form.getValues("grade"),
+                            );
+                            if (!stillValid) form.setValue("grade", "");
+                          }}
+                          value={field.value}
+                        >
                           <FormControl>
                             <SelectTrigger data-testid="select-subject" className="bg-background">
                               <SelectValue placeholder="Select subject..." />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="ELA" data-testid="option-ela">ELA</SelectItem>
-                            <SelectItem value="Math" data-testid="option-math">Math</SelectItem>
-                            <SelectItem value="Science" data-testid="option-science">Science</SelectItem>
+                            {subjects.length === 0 && (
+                              <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                                {summaryQuery.isLoading ? "Loading…" : "No subjects available"}
+                              </div>
+                            )}
+                            {subjects.map((s) => (
+                              <SelectItem
+                                key={s}
+                                value={s}
+                                data-testid={`option-subject-${s.toLowerCase()}`}
+                              >
+                                {s}
+                              </SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -724,16 +817,32 @@ export default function Home() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Grade Level</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <Select
+                          onValueChange={(v) => {
+                            field.onChange(v);
+                          }}
+                          value={field.value}
+                          disabled={!selectedSubject || gradesForSubject.length === 0}
+                        >
                           <FormControl>
                             <SelectTrigger data-testid="select-grade" className="bg-background">
-                              <SelectValue placeholder="Select grade..." />
+                              <SelectValue
+                                placeholder={
+                                  selectedSubject ? "Select grade..." : "Pick a subject first…"
+                                }
+                              />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="3" data-testid="option-grade-3">Grade 3</SelectItem>
-                            <SelectItem value="4" data-testid="option-grade-4">Grade 4</SelectItem>
-                            <SelectItem value="5" data-testid="option-grade-5">Grade 5</SelectItem>
+                            {gradesForSubject.map((g) => (
+                              <SelectItem
+                                key={g}
+                                value={g}
+                                data-testid={`option-grade-${g}`}
+                              >
+                                Grade {g}
+                              </SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -741,6 +850,39 @@ export default function Home() {
                     )}
                   />
                 </div>
+
+                {selectedSubject && selectedGrade && standardsCount !== null && (
+                  <div
+                    className={cn(
+                      "text-xs rounded-md px-3 py-2 border",
+                      standardsCount === 0
+                        ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                        : "border-border/50 bg-muted/40 text-muted-foreground",
+                    )}
+                    data-testid="text-standards-preview"
+                  >
+                    {standardsCount === 0 ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        <AlertTriangle className="w-3.5 h-3.5" />
+                        No standards loaded for {selectedSubject} · Grade {selectedGrade}. Claude
+                        will generate without curriculum grounding.
+                      </span>
+                    ) : (
+                      <>
+                        <span className="font-medium text-foreground">{standardsCount}</span>{" "}
+                        {standardsCount === 1 ? "standard" : "standards"} will be sent to Claude
+                        for {selectedSubject} · Grade {selectedGrade}.{" "}
+                        <Link
+                          href="/curriculum"
+                          className="underline hover:text-foreground"
+                          data-testid="link-view-curriculum"
+                        >
+                          View library
+                        </Link>
+                      </>
+                    )}
+                  </div>
+                )}
 
                 <FormField
                   control={form.control}

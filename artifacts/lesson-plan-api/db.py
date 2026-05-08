@@ -3,6 +3,7 @@ import os
 import json
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "curriculum.db")
+SAMPLE_JSON_PATH = os.path.join(os.path.dirname(__file__), "sample_curriculum.json")
 
 
 def get_connection() -> sqlite3.Connection:
@@ -23,7 +24,8 @@ def init_db() -> None:
                 standard_code   TEXT NOT NULL UNIQUE,
                 strand          TEXT,
                 description     TEXT NOT NULL,
-                source_version  TEXT
+                source_version  TEXT,
+                ingested_at     TEXT NOT NULL DEFAULT (datetime('now'))
             )
             """
         )
@@ -43,12 +45,35 @@ def init_db() -> None:
         )
         # Inline migrations: add columns if upgrading from an older schema.
         # Safe to run on every startup.
-        cols = {row["name"] for row in conn.execute("PRAGMA table_info(lesson_plans)").fetchall()}
-        if "citations" not in cols:
+        plan_cols = {row["name"] for row in conn.execute("PRAGMA table_info(lesson_plans)").fetchall()}
+        if "citations" not in plan_cols:
             conn.execute("ALTER TABLE lesson_plans ADD COLUMN citations TEXT")
-        if "title" not in cols:
+        if "title" not in plan_cols:
             conn.execute("ALTER TABLE lesson_plans ADD COLUMN title TEXT")
+
+        curr_cols = {row["name"] for row in conn.execute("PRAGMA table_info(curriculum)").fetchall()}
+        if "ingested_at" not in curr_cols:
+            # ALTER TABLE in SQLite cannot add a column with a non-constant default,
+            # so add a nullable column then backfill in a separate UPDATE.
+            conn.execute("ALTER TABLE curriculum ADD COLUMN ingested_at TEXT")
+            backfill = _sample_file_mtime_iso()
+            conn.execute(
+                "UPDATE curriculum SET ingested_at = ? WHERE ingested_at IS NULL",
+                (backfill,),
+            )
         conn.commit()
+
+
+def _sample_file_mtime_iso() -> str:
+    """Best-effort timestamp for backfilling pre-existing curriculum rows.
+    Falls back to current time if the sample file is unavailable."""
+    try:
+        import datetime
+        ts = os.path.getmtime(SAMPLE_JSON_PATH)
+        return datetime.datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+    except OSError:
+        import datetime
+        return datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def save_lesson_plan(
@@ -139,3 +164,58 @@ def is_empty() -> bool:
     with get_connection() as conn:
         row = conn.execute("SELECT COUNT(*) AS n FROM curriculum").fetchone()
         return row["n"] == 0
+
+
+def curriculum_summary() -> list[dict]:
+    """Return one row per (subject, grade) with count, source versions, and last ingest time."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT subject,
+                   grade,
+                   COUNT(*) AS count,
+                   GROUP_CONCAT(DISTINCT source_version) AS source_versions,
+                   MAX(ingested_at) AS last_ingested
+            FROM curriculum
+            GROUP BY subject, grade
+            ORDER BY subject, grade
+            """
+        ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            raw = d.pop("source_versions") or ""
+            d["source_versions"] = sorted([v for v in raw.split(",") if v])
+            result.append(d)
+        return result
+
+
+def curriculum_totals() -> dict:
+    """Overall pipeline-health totals."""
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS total_standards,
+                   COUNT(DISTINCT subject) AS total_subjects,
+                   COUNT(DISTINCT grade) AS total_grades,
+                   COUNT(DISTINCT strand) AS total_strands,
+                   MAX(ingested_at) AS last_ingested
+            FROM curriculum
+            """
+        ).fetchone()
+        return dict(row)
+
+
+def list_standards(subject: str, grade: str) -> list[dict]:
+    """All standards for a (subject, grade) bucket — used by the curriculum browser."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT standard_code, strand, description, source_version, ingested_at
+            FROM curriculum
+            WHERE subject = ? AND grade = ?
+            ORDER BY standard_code
+            """,
+            (subject, grade),
+        ).fetchall()
+        return [dict(r) for r in rows]

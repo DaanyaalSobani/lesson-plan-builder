@@ -25,6 +25,9 @@ from db import (
     get_lesson_plan,
     delete_lesson_plan,
     update_lesson_plan_title,
+    curriculum_summary,
+    curriculum_totals,
+    list_standards,
 )
 from ingest import load_from_json, ingest, SAMPLE_JSON
 from retrieval import get_curriculum
@@ -212,6 +215,66 @@ async def history_update(plan_id: int, req: UpdatePlanRequest):
     if not row:
         raise HTTPException(status_code=404, detail="Lesson plan not found.")
     return LessonPlanDetail(**row)
+
+
+class CurriculumBucket(BaseModel):
+    subject: str
+    grade: str
+    count: int
+    source_versions: list[str]
+    last_ingested: str | None = None
+
+
+class CurriculumTotals(BaseModel):
+    total_standards: int
+    total_subjects: int
+    total_grades: int
+    total_strands: int
+    last_ingested: str | None = None
+    is_empty: bool
+
+
+class CurriculumSummaryResponse(BaseModel):
+    buckets: list[CurriculumBucket]
+    totals: CurriculumTotals
+
+
+class CurriculumStandard(BaseModel):
+    standard_code: str
+    strand: str | None = None
+    description: str
+    source_version: str | None = None
+    ingested_at: str | None = None
+
+
+class CurriculumStandardsResponse(BaseModel):
+    subject: str
+    grade: str
+    standards: list[CurriculumStandard]
+
+
+@app.get("/curriculum/summary", response_model=CurriculumSummaryResponse)
+async def curriculum_summary_endpoint():
+    """Per-(subject, grade) breakdown plus overall totals — drives the
+    Curriculum Library page and the data-driven dropdowns on the Generate form."""
+    buckets = [CurriculumBucket(**b) for b in curriculum_summary()]
+    totals_row = curriculum_totals()
+    totals = CurriculumTotals(**totals_row, is_empty=totals_row["total_standards"] == 0)
+    return CurriculumSummaryResponse(buckets=buckets, totals=totals)
+
+
+@app.get("/curriculum/standards", response_model=CurriculumStandardsResponse)
+async def curriculum_standards_endpoint(subject: str, grade: str):
+    """Every standard for a (subject, grade) — used to populate the
+    expandable detail tables in the Curriculum Library."""
+    if not subject.strip() or not grade.strip():
+        raise HTTPException(status_code=422, detail="subject and grade are required.")
+    rows = list_standards(subject, grade)
+    return CurriculumStandardsResponse(
+        subject=subject,
+        grade=grade,
+        standards=[CurriculumStandard(**r) for r in rows],
+    )
 
 
 def _validate_codes(response: str, curriculum_rows: list[dict]) -> list[Citation]:
