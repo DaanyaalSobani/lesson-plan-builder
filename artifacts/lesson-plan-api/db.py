@@ -11,7 +11,7 @@ def get_connection() -> sqlite3.Connection:
 
 
 def init_db() -> None:
-    """Create the curriculum table if it doesn't exist."""
+    """Create the curriculum and lesson_plans tables if they don't exist."""
     with get_connection() as conn:
         conn.execute(
             """
@@ -26,7 +26,62 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS lesson_plans (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                subject          TEXT NOT NULL,
+                grade            TEXT NOT NULL,
+                teacher_request  TEXT NOT NULL,
+                lesson_plan      TEXT NOT NULL,
+                created_at       TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+            """
+        )
         conn.commit()
+
+
+def save_lesson_plan(subject: str, grade: str, teacher_request: str, lesson_plan: str) -> int:
+    """Insert a generated lesson plan and return its new id."""
+    with get_connection() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO lesson_plans (subject, grade, teacher_request, lesson_plan)
+            VALUES (?, ?, ?, ?)
+            """,
+            (subject, grade, teacher_request, lesson_plan),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+
+
+def list_lesson_plans(limit: int = 50) -> list[dict]:
+    """Return saved lesson plan summaries in reverse chronological order (newest first)."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, subject, grade, teacher_request, created_at
+            FROM lesson_plans
+            ORDER BY datetime(created_at) DESC, id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_lesson_plan(plan_id: int) -> dict | None:
+    """Return a single lesson plan by id, or None if not found."""
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT id, subject, grade, teacher_request, lesson_plan, created_at
+            FROM lesson_plans
+            WHERE id = ?
+            """,
+            (plan_id,),
+        ).fetchone()
+        return dict(row) if row else None
 
 
 def is_empty() -> bool:

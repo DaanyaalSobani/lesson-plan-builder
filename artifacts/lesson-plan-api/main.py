@@ -17,7 +17,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from db import init_db, is_empty
+from db import init_db, is_empty, save_lesson_plan, list_lesson_plans, get_lesson_plan
 from ingest import load_from_json, ingest, SAMPLE_JSON
 from retrieval import get_curriculum
 from prompt_builder import build_prompt
@@ -82,7 +82,24 @@ class GenerateRequest(BaseModel):
 
 
 class GenerateResponse(BaseModel):
+    id: int
     lesson_plan: str
+
+
+class LessonPlanSummary(BaseModel):
+    id: int
+    subject: str
+    grade: str
+    teacher_request: str
+    created_at: str
+
+
+class LessonPlanDetail(LessonPlanSummary):
+    lesson_plan: str
+
+
+class HistoryResponse(BaseModel):
+    plans: list[LessonPlanSummary]
 
 
 @app.get("/healthz")
@@ -115,7 +132,39 @@ async def generate_lesson_plan(req: GenerateRequest):
 
     _validate_codes(lesson_plan, curriculum_rows)
 
-    return GenerateResponse(lesson_plan=lesson_plan)
+    plan_id = save_lesson_plan(
+        subject=req.subject,
+        grade=req.grade,
+        teacher_request=req.teacher_request,
+        lesson_plan=lesson_plan,
+    )
+
+    return GenerateResponse(id=plan_id, lesson_plan=lesson_plan)
+
+
+@app.get("/history", response_model=HistoryResponse)
+async def history(limit: int = 50):
+    limit = max(1, min(limit, 200))
+    rows = list_lesson_plans(limit=limit)
+    summaries = [
+        LessonPlanSummary(
+            id=r["id"],
+            subject=r["subject"],
+            grade=r["grade"],
+            teacher_request=r["teacher_request"],
+            created_at=r["created_at"],
+        )
+        for r in rows
+    ]
+    return HistoryResponse(plans=summaries)
+
+
+@app.get("/history/{plan_id}", response_model=LessonPlanDetail)
+async def history_detail(plan_id: int):
+    row = get_lesson_plan(plan_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Lesson plan not found.")
+    return LessonPlanDetail(**row)
 
 
 def _validate_codes(response: str, curriculum_rows: list[dict]) -> None:
