@@ -1,0 +1,30 @@
+Build a Python web app (Flask or FastAPI, your choice — pick the simpler one) for generating school lesson plans using an LLM. This is a learning project, so prioritize clear structure and readable code over cleverness. Don't over-engineer.
+Core functionality:
+
+User-facing UI with: a dropdown for Subject, a dropdown for Grade, a textarea for the teacher's request, and a "Generate" button. Output renders below.
+Backend takes those three inputs, retrieves relevant curriculum context from a local SQLite database, builds a prompt, sends it to an LLM, and returns the response.
+
+Architecture requirements:
+
+LLM provider abstraction. Create a providers/ module with a base class LLMProvider exposing a single method like generate(system_prompt: str, user_prompt: str, **params) -> str. Implement at least one working provider (Anthropic Claude via the anthropic SDK is fine — read the API key from an env var). Structure it so adding OpenAI or others later is just a new file. The rest of the app should never import a provider directly — only the abstraction.
+Config-driven system prompt. Put the system prompt in a separate file (prompts/lesson_plan.txt or a YAML config) with placeholders for tone, output format, etc. Load it at request time so editing the file doesn't require code changes.
+SQLite curriculum store. Schema should support: subject, grade, standard_code, strand, description, source_version. Include a script ingest.py that's a placeholder for now — it should accept a PDF path, but for the initial scaffold just have it read a sample JSON file of fake curriculum data and populate the DB. I'll wire up real PDF parsing later.
+Retrieval. For now, do simple structured lookup: given subject + grade, pull all matching curriculum rows. No embeddings yet. Leave a comment marking where semantic search could be added later.
+Prompt assembly. A build_prompt() function that takes the user inputs and retrieved curriculum rows and produces the final system + user prompt strings. Wrap the teacher's text in clear delimiters (e.g., <teacher_request>...</teacher_request>).
+Output validation. After the LLM responds, run a basic check: does the response cite curriculum codes that actually exist in the retrieved set? Log any hallucinated codes to the console (don't block the response yet).
+
+What to include:
+
+requirements.txt
+.env.example with ANTHROPIC_API_KEY=
+A README.md with setup steps, how to run, and where to edit the system prompt
+A small sample_curriculum.json with 2–3 subjects × 2–3 grades of fake-but-realistic standards so the app works end-to-end on first run
+
+What NOT to do:
+
+No authentication, no user accounts, no database migrations framework — keep it minimal
+Don't implement PDF parsing yet, just the placeholder
+Don't add embeddings or vector search
+Don't add streaming responses yet — plain request/response is fine
+
+Make it run with one command after pip install. Confirm the structure with me before writing all the code if anything is ambiguous.
