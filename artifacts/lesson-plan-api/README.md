@@ -2,6 +2,8 @@
 
 A FastAPI backend that generates standards-aligned lesson plans using an LLM.
 
+> For an explanation of how curriculum grounding works (and why this project does **not** use embeddings or a vector DB), see [`README-rag.md`](../../README-rag.md) at the repo root.
+
 ## Setup
 
 ```bash
