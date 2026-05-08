@@ -108,6 +108,7 @@ type LessonPlanDetail = LessonPlanSummary & {
   lesson_plan: string;
   citations?: Citation[];
   considered_standards?: ConsideredStandard[];
+  standards_were_narrowed?: boolean;
 };
 
 type GenerateResponse = {
@@ -115,6 +116,7 @@ type GenerateResponse = {
   lesson_plan: string;
   citations: Citation[];
   considered_standards: ConsideredStandard[];
+  standards_were_narrowed?: boolean;
 };
 
 type CurriculumStandard = {
@@ -151,6 +153,7 @@ type DisplayedPlan = {
   lesson_plan: string;
   citations: Citation[];
   considered_standards: ConsideredStandard[];
+  standards_were_narrowed?: boolean;
   title?: string | null;
   created_at?: string;
 };
@@ -303,9 +306,11 @@ function CitationsPanel({
 
 function ConsideredStandardsPanel({
   standards,
+  narrowed = false,
   onJumpToCode,
 }: {
   standards: ConsideredStandard[];
+  narrowed?: boolean;
   onJumpToCode: (code: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -324,9 +329,19 @@ function ConsideredStandardsPanel({
         >
           <div className="flex items-center gap-2 flex-wrap">
             <h3 className="text-base font-serif text-foreground">Standards considered</h3>
+            {narrowed && total > 0 && (
+              <Badge
+                variant="outline"
+                className="text-[10px] border-primary/40 text-primary"
+                data-testid="badge-standards-narrowed"
+              >
+                Narrowed to {total} selected
+              </Badge>
+            )}
             {total > 0 ? (
               <span className="text-xs text-muted-foreground">
-                {total} retrieved · {citedCount} cited · {total - citedCount} not cited
+                {total} {narrowed ? "selected" : "retrieved"} · {citedCount} cited ·{" "}
+                {total - citedCount} not cited
               </span>
             ) : (
               <span className="text-xs text-muted-foreground">none retrieved</span>
@@ -349,9 +364,10 @@ function ConsideredStandardsPanel({
               </p>
             ) : (
               <>
-                <p className="text-xs text-muted-foreground mb-3">
-                  These are all the standards that were sent to the AI. Cited ones appear in the
-                  plan above; the rest were available but not used.
+                <p className="text-xs text-muted-foreground mb-3" data-testid="text-considered-intro">
+                  {narrowed
+                    ? "You hand-picked these standards before generating, so the AI only saw this subset. Cited ones appear in the plan above; the rest were selected but not used."
+                    : "These are all the standards that were sent to the AI. Cited ones appear in the plan above; the rest were available but not used."}
                 </p>
                 <ul className="space-y-2" data-testid="list-considered">
                   {standards.map((s) => (
@@ -534,6 +550,7 @@ export default function Home() {
         lesson_plan: resp.lesson_plan,
         citations: resp.citations ?? [],
         considered_standards: resp.considered_standards ?? [],
+        standards_were_narrowed: resp.standards_were_narrowed ?? false,
       });
       queryClient.invalidateQueries({ queryKey: ["history"] });
     },
@@ -561,6 +578,7 @@ export default function Home() {
         ...plan,
         citations: plan.citations ?? [],
         considered_standards: plan.considered_standards ?? [],
+        standards_were_narrowed: plan.standards_were_narrowed ?? false,
       });
       setHistoryOpen(false);
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1345,6 +1363,7 @@ export default function Home() {
 
             <ConsideredStandardsPanel
               standards={displayedPlan.considered_standards}
+              narrowed={displayedPlan.standards_were_narrowed ?? false}
               onJumpToCode={jumpToCode}
             />
           </div>

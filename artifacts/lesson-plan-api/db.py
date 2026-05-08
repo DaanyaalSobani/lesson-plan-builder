@@ -130,6 +130,7 @@ def save_lesson_plan(
     lesson_plan: str,
     citations: list[dict] | None = None,
     considered_standards: list[dict] | None = None,
+    standards_were_narrowed: bool = False,
 ) -> int:
     citations_json = json.dumps(citations) if citations is not None else None
     considered_json = (
@@ -138,10 +139,12 @@ def save_lesson_plan(
     with get_connection() as conn:
         cur = conn.execute(
             """
-            INSERT INTO lesson_plans (subject, grade, teacher_request, lesson_plan, citations, considered_standards)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO lesson_plans (subject, grade, teacher_request, lesson_plan,
+                                      citations, considered_standards, standards_were_narrowed)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (subject, grade, teacher_request, lesson_plan, citations_json, considered_json),
+            (subject, grade, teacher_request, lesson_plan, citations_json, considered_json,
+             1 if standards_were_narrowed else 0),
         )
         conn.commit()
         return int(cur.lastrowid)
@@ -166,7 +169,7 @@ def get_lesson_plan(plan_id: int) -> dict | None:
         row = conn.execute(
             """
             SELECT id, subject, grade, teacher_request, lesson_plan, citations,
-                   considered_standards, title, created_at
+                   considered_standards, title, standards_were_narrowed, created_at
             FROM lesson_plans
             WHERE id = ?
             """,
@@ -180,6 +183,7 @@ def get_lesson_plan(plan_id: int) -> dict | None:
             result["citations"] = json.loads(raw) if raw else []
         except (ValueError, TypeError):
             result["citations"] = []
+        result["standards_were_narrowed"] = bool(result.get("standards_were_narrowed") or 0)
         raw_considered = result.pop("considered_standards", None)
         try:
             result["considered_standards"] = (

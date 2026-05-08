@@ -121,6 +121,7 @@ class GenerateResponse(BaseModel):
     lesson_plan: str
     citations: list[Citation]
     considered_standards: list[ConsideredStandard]
+    standards_were_narrowed: bool = False
 
 
 class LessonPlanSummary(BaseModel):
@@ -136,6 +137,7 @@ class LessonPlanDetail(LessonPlanSummary):
     lesson_plan: str
     citations: list[Citation] = []
     considered_standards: list[ConsideredStandard] = []
+    standards_were_narrowed: bool = False
 
 
 class HistoryResponse(BaseModel):
@@ -163,6 +165,7 @@ async def generate_lesson_plan(req: GenerateRequest):
     # If the teacher narrowed the focus to a subset of standards on the form,
     # restrict the curriculum sent to the model to just those codes. Unknown
     # codes (not in the retrieved set for this subject+grade) are ignored.
+    standards_were_narrowed = False
     if req.selected_standard_codes:
         wanted = {c.strip() for c in req.selected_standard_codes if c and c.strip()}
         if wanted:
@@ -172,6 +175,11 @@ async def generate_lesson_plan(req: GenerateRequest):
                     f"Teacher narrowed standards: {len(filtered)}/{len(curriculum_rows)} "
                     f"selected for subject={req.subject!r} grade={req.grade!r}"
                 )
+                # Only flag as "narrowed" if the selection was a strict subset
+                # of the available standards — picking every available code is
+                # equivalent to no narrowing at all.
+                if len(filtered) < len(curriculum_rows):
+                    standards_were_narrowed = True
                 curriculum_rows = filtered
             else:
                 log.warning(
@@ -213,6 +221,7 @@ async def generate_lesson_plan(req: GenerateRequest):
         lesson_plan=lesson_plan,
         citations=[c.model_dump() for c in citations],
         considered_standards=[c.model_dump() for c in considered_standards],
+        standards_were_narrowed=standards_were_narrowed,
     )
 
     return GenerateResponse(
@@ -220,6 +229,7 @@ async def generate_lesson_plan(req: GenerateRequest):
         lesson_plan=lesson_plan,
         citations=citations,
         considered_standards=considered_standards,
+        standards_were_narrowed=standards_were_narrowed,
     )
 
 
