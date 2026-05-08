@@ -50,6 +50,8 @@ type Totals = {
   total_strands: number;
   last_ingested: string | null;
   is_empty: boolean;
+  status: "green" | "amber" | "red";
+  missing_combinations: { subject: string; grade: string }[];
 };
 
 type Summary = { buckets: Bucket[]; totals: Totals };
@@ -87,11 +89,25 @@ function bucketKey(subject: string, grade: string) {
 }
 
 function HealthBadge({ totals }: { totals: Totals }) {
-  if (totals.is_empty) {
+  if (totals.status === "red") {
     return (
-      <Badge variant="destructive" className="gap-1" data-testid="badge-health">
+      <Badge variant="destructive" className="gap-1" data-testid="badge-health" data-status="red">
         <AlertTriangle className="w-3.5 h-3.5" />
         Empty — no curriculum loaded
+      </Badge>
+    );
+  }
+  if (totals.status === "amber") {
+    return (
+      <Badge
+        variant="secondary"
+        className="gap-1 bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30"
+        data-testid="badge-health"
+        data-status="amber"
+      >
+        <AlertTriangle className="w-3.5 h-3.5" />
+        Partial coverage ({totals.missing_combinations.length} gap
+        {totals.missing_combinations.length === 1 ? "" : "s"})
       </Badge>
     );
   }
@@ -100,6 +116,7 @@ function HealthBadge({ totals }: { totals: Totals }) {
       variant="secondary"
       className="gap-1 bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30"
       data-testid="badge-health"
+      data-status="green"
     >
       <CheckCircle2 className="w-3.5 h-3.5" />
       Healthy
@@ -295,6 +312,22 @@ export default function CurriculumPage() {
                   <AlertTitle>The curriculum table is empty</AlertTitle>
                   <AlertDescription>
                     Generated plans will have no standards to cite. Run the ingest pipeline to load data.
+                  </AlertDescription>
+                </Alert>
+              )}
+              {totals.status === "amber" && (
+                <Alert
+                  className="mt-4 border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-300"
+                  data-testid="alert-coverage-gaps"
+                >
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertTitle>Coverage gaps detected</AlertTitle>
+                  <AlertDescription>
+                    Some subject &times; grade combinations have zero standards loaded:{" "}
+                    {totals.missing_combinations
+                      .map((m) => `${m.subject} · Grade ${m.grade}`)
+                      .join(", ")}
+                    .
                   </AlertDescription>
                 </Alert>
               )}

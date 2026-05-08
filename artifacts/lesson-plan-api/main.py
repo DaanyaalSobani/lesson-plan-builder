@@ -225,6 +225,11 @@ class CurriculumBucket(BaseModel):
     last_ingested: str | None = None
 
 
+class MissingCombination(BaseModel):
+    subject: str
+    grade: str
+
+
 class CurriculumTotals(BaseModel):
     total_standards: int
     total_subjects: int
@@ -232,6 +237,8 @@ class CurriculumTotals(BaseModel):
     total_strands: int
     last_ingested: str | None = None
     is_empty: bool
+    status: str  # "green" | "amber" | "red"
+    missing_combinations: list[MissingCombination] = []
 
 
 class CurriculumSummaryResponse(BaseModel):
@@ -259,7 +266,35 @@ async def curriculum_summary_endpoint():
     Curriculum Library page and the data-driven dropdowns on the Generate form."""
     buckets = [CurriculumBucket(**b) for b in curriculum_summary()]
     totals_row = curriculum_totals()
-    totals = CurriculumTotals(**totals_row, is_empty=totals_row["total_standards"] == 0)
+    is_empty = totals_row["total_standards"] == 0
+
+    # Compute cross-product gaps. The Generate dropdown only ever advertises
+    # combinations present in `buckets`, but if one subject covers grades 3-5
+    # while another only covers 3, that asymmetry is still worth surfacing as
+    # an amber pipeline-health signal so admins know coverage is uneven.
+    present = {(b.subject, b.grade) for b in buckets}
+    all_subjects = sorted({b.subject for b in buckets})
+    all_grades = sorted({b.grade for b in buckets})
+    missing = [
+        MissingCombination(subject=s, grade=g)
+        for s in all_subjects
+        for g in all_grades
+        if (s, g) not in present
+    ]
+
+    if is_empty:
+        status = "red"
+    elif missing:
+        status = "amber"
+    else:
+        status = "green"
+
+    totals = CurriculumTotals(
+        **totals_row,
+        is_empty=is_empty,
+        status=status,
+        missing_combinations=missing,
+    )
     return CurriculumSummaryResponse(buckets=buckets, totals=totals)
 
 
