@@ -76,6 +76,7 @@
     "zod": "catalog:"
   },
   "dependencies": {
-    "html2pdf.js": "^0.14.0"
+    "html2pdf.js": "^0.14.0",
+    "remark-gfm": "^4.0.1"
   }
 }

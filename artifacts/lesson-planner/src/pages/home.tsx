@@ -5,6 +5,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   BookOpen,
   Sparkles,
@@ -135,6 +136,46 @@ type DisplayedPlan = {
   title?: string | null;
   created_at?: string;
 };
+
+/**
+ * Some lesson-plan responses arrive with markdown tables collapsed onto a
+ * single line — e.g. "| Code | How |...|------|----| | A | B | | C | D |".
+ * react-markdown (even with GFM) will only render those as a table when
+ * each row sits on its own line, so we re-insert the missing newlines
+ * before a header separator and between subsequent row cells.
+ *
+ * We deliberately only touch lines that look like a multi-row collapsed
+ * table (have a `|---|` separator AND at least one extra `| ... |` row on
+ * the same line); ordinary inline `|` characters in prose are left alone.
+ */
+function normalizeMarkdownTables(src: string): string {
+  return src
+    .split("\n")
+    .map((line) => {
+      // Quick reject: must contain the GFM separator pattern AND have more
+      // than one trailing `| ... |` group on the same line.
+      if (!/\|\s*-{3,}\s*\|/.test(line)) return line;
+      // Collapse runs of whitespace that sit between row boundaries (`| |`)
+      // into a real newline. The pattern `| <empty-or-spaces> |` between two
+      // closing/opening pipes is the marker between two rows that the
+      // model glued together.
+      let out = line.replace(/\|\s+\|/g, (match) => {
+        // Preserve a single `| |` (which is a legitimately empty cell)
+        // when it appears inside a row of more empty cells; only break
+        // when surrounded by non-pipe content on both sides.
+        return match;
+      });
+      // Insert a newline before the header separator row so the header is
+      // on its own line: "| H1 | H2 | |---|---| | r1 | r2 |"
+      // -> "| H1 | H2 |\n|---|---|\n| r1 | r2 |"
+      out = out.replace(/\|\s*(\|\s*-{3,}[\s\S]*)$/, "|\n$1");
+      // Then split the separator + body wherever a `| ... |` row begins
+      // immediately after a closing pipe.
+      out = out.replace(/\|\s+\|\s*(?=\S)/g, "|\n| ");
+      return out;
+    })
+    .join("\n");
+}
 
 function formatTimestamp(iso: string): string {
   // Backend stores UTC strings like "2026-05-08 14:23:01"; treat as UTC.
@@ -994,8 +1035,8 @@ export default function Home() {
             <Separator />
             <Card className="bg-card shadow-sm border-border/50">
               <CardContent ref={outputRef} className="p-6 md:p-10 prose prose-sage max-w-none prose-headings:font-serif prose-p:leading-relaxed" data-testid="output-area">
-                <ReactMarkdown>
-                  {displayedPlan.lesson_plan}
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {normalizeMarkdownTables(displayedPlan.lesson_plan)}
                 </ReactMarkdown>
               </CardContent>
             </Card>
