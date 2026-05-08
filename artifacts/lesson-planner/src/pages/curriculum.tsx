@@ -19,7 +19,6 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Table,
   TableBody,
@@ -174,32 +173,42 @@ function BucketDetail({ subject, grade, search }: { subject: string; grade: stri
   }
 
   return (
-    <ScrollArea className="max-h-[420px] rounded-md border border-border/50">
-      <Table data-testid={`table-standards-${subject}-${grade}`}>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-[160px]">Code</TableHead>
-            <TableHead className="w-[180px]">Strand</TableHead>
-            <TableHead>Description</TableHead>
-            <TableHead className="w-[120px]">Source</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {filtered.map((s) => (
-            <TableRow key={s.standard_code} data-testid={`row-standard-${s.standard_code}`}>
-              <TableCell className="font-mono text-xs align-top">{s.standard_code}</TableCell>
-              <TableCell className="text-xs text-muted-foreground align-top">
-                {s.strand || "—"}
-              </TableCell>
-              <TableCell className="text-sm align-top">{s.description}</TableCell>
-              <TableCell className="text-xs text-muted-foreground align-top">
-                {s.source_version || "—"}
-              </TableCell>
+    <div className="space-y-2">
+      <div
+        className="text-xs text-muted-foreground"
+        data-testid={`text-standards-count-${subject}-${grade}`}
+      >
+        Showing {filtered.length} of {all.length}{" "}
+        {all.length === 1 ? "standard" : "standards"}
+        {needle ? ` matching "${search}"` : ""}.
+      </div>
+      <div className="rounded-md border border-border/50">
+        <Table data-testid={`table-standards-${subject}-${grade}`}>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-[160px]">Code</TableHead>
+              <TableHead className="w-[180px]">Strand</TableHead>
+              <TableHead>Description</TableHead>
+              <TableHead className="w-[120px]">Source</TableHead>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </ScrollArea>
+          </TableHeader>
+          <TableBody>
+            {filtered.map((s) => (
+              <TableRow key={s.standard_code} data-testid={`row-standard-${s.standard_code}`}>
+                <TableCell className="font-mono text-xs align-top">{s.standard_code}</TableCell>
+                <TableCell className="text-xs text-muted-foreground align-top">
+                  {s.strand || "—"}
+                </TableCell>
+                <TableCell className="text-sm align-top">{s.description}</TableCell>
+                <TableCell className="text-xs text-muted-foreground align-top">
+                  {s.source_version || "—"}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
   );
 }
 
