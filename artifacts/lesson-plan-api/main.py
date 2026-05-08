@@ -21,7 +21,7 @@ from db import init_db, is_empty
 from ingest import load_from_json, ingest, SAMPLE_JSON
 from retrieval import get_curriculum
 from prompt_builder import build_prompt
-from providers.anthropic_provider import AnthropicProvider
+from providers.base import LLMProvider
 
 load_dotenv()
 
@@ -37,14 +37,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-_llm_provider: AnthropicProvider | None = None
+_llm_provider: LLMProvider | None = None
 
 
-def get_llm_provider() -> AnthropicProvider:
-    """Lazy-initialise the provider so the server starts even before ANTHROPIC_API_KEY is set."""
+def _create_provider() -> LLMProvider:
+    """
+    Factory that selects the concrete LLM provider from the PROVIDER env var.
+    Defaults to 'anthropic'. To add a new provider, create providers/<name>_provider.py
+    and add a branch here — no other file needs changing.
+    """
+    provider_name = os.getenv("PROVIDER", "anthropic").lower()
+    if provider_name == "anthropic":
+        from providers.anthropic_provider import AnthropicProvider
+        return AnthropicProvider()
+    raise ValueError(f"Unknown provider: {provider_name!r}. Set PROVIDER env var to a supported value.")
+
+
+def get_llm_provider() -> LLMProvider:
+    """Lazy-initialise the provider so the server starts even before the API key is set."""
     global _llm_provider
     if _llm_provider is None:
-        _llm_provider = AnthropicProvider()
+        _llm_provider = _create_provider()
     return _llm_provider
 
 STANDARD_CODE_PATTERN = re.compile(r"\b[A-Z]{2,6}\.\d+\.[A-Z0-9]+\.\d+\b")
