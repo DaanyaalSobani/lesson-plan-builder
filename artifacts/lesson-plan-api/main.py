@@ -15,6 +15,7 @@ import logging
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from db import (
@@ -278,11 +279,29 @@ async def history_update(plan_id: int, req: UpdatePlanRequest):
     return LessonPlanDetail(**row)
 
 
+# Maps the human-readable source_version stored on each curriculum row to
+# the original PDF that was ingested for it. The PDF lives in
+# curriculum_pdfs/ and is exposed via /curriculum/pdf/{filename} so the
+# Curriculum Library can link straight to the source document.
+SOURCE_PDF_FILENAMES: dict[str, str] = {
+    "Ontario MTH1W 2021": "ontario_math_9_mth1w_2021.pdf",
+    "Ontario ENL1W 2023": "ontario_english_9_enl1w_2023.pdf",
+}
+
+CURRICULUM_PDF_DIR = os.path.join(os.path.dirname(__file__), "curriculum_pdfs")
+
+
+class CurriculumSourcePdf(BaseModel):
+    label: str       # e.g. "Ontario MTH1W 2021"
+    filename: str    # e.g. "ontario_math_9_mth1w_2021.pdf"
+
+
 class CurriculumBucket(BaseModel):
     subject: str
     grade: str
     count: int
     source_versions: list[str]
+    source_pdfs: list[CurriculumSourcePdf] = []
     last_ingested: str | None = None
 
 
@@ -325,7 +344,15 @@ class CurriculumStandardsResponse(BaseModel):
 async def curriculum_summary_endpoint():
     """Per-(subject, grade) breakdown plus overall totals — drives the
     Curriculum Library page and the data-driven dropdowns on the Generate form."""
-    buckets = [CurriculumBucket(**b) for b in curriculum_summary()]
+    raw_buckets = curriculum_summary()
+    buckets: list[CurriculumBucket] = []
+    for b in raw_buckets:
+        pdfs: list[CurriculumSourcePdf] = []
+        for label in b.get("source_versions", []):
+            fname = SOURCE_PDF_FILENAMES.get(label)
+            if fname and os.path.exists(os.path.join(CURRICULUM_PDF_DIR, fname)):
+                pdfs.append(CurriculumSourcePdf(label=label, filename=fname))
+        buckets.append(CurriculumBucket(**b, source_pdfs=pdfs))
     totals_row = curriculum_totals()
     is_empty = totals_row["total_standards"] == 0
 
@@ -359,6 +386,25 @@ async def curriculum_summary_endpoint():
         missing_combinations=missing,
     )
     return CurriculumSummaryResponse(buckets=buckets, totals=totals)
+
+
+@app.get("/curriculum/pdf/{filename}")
+async def curriculum_pdf(filename: str):
+    """Serve a source curriculum PDF from curriculum_pdfs/ for download.
+
+    Restricted to plain filenames — no path traversal, no directories — and
+    only files that actually exist on disk. The Curriculum Library page
+    links here for each ingested source.
+    """
+    # Reject anything that isn't a bare filename.
+    if "/" in filename or "\\" in filename or filename.startswith("."):
+        raise HTTPException(status_code=400, detail="Invalid filename.")
+    if not filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only .pdf files are served.")
+    path = os.path.join(CURRICULUM_PDF_DIR, filename)
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="PDF not found.")
+    return FileResponse(path, media_type="application/pdf", filename=filename)
 
 
 @app.get("/curriculum/standards", response_model=CurriculumStandardsResponse)

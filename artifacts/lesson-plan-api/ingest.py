@@ -62,7 +62,7 @@ SECTION_END_PREFIXES = (
     "By the end of this course",
 )
 
-ONTARIO_STRAND_TITLES = {
+ONTARIO_MTH1W_STRAND_TITLES = {
     "AA": "Social-Emotional Learning Skills in Mathematics",
     "A": "Mathematical Thinking and Making Connections",
     "B": "Number",
@@ -71,6 +71,16 @@ ONTARIO_STRAND_TITLES = {
     "E": "Geometry and Measurement",
     "F": "Financial Literacy",
 }
+
+ONTARIO_ENL1W_STRAND_TITLES = {
+    "A": "Literacy Connections and Applications",
+    "B": "Foundations of Language",
+    "C": "Comprehension: Understanding and Responding to Texts",
+    "D": "Composition: Expressing Ideas and Creating Texts",
+}
+
+# Backwards-compat alias for older imports / tests.
+ONTARIO_STRAND_TITLES = ONTARIO_MTH1W_STRAND_TITLES
 
 
 def _strand_for(code: str) -> str:
@@ -93,13 +103,22 @@ def parse_ontario_pdf(
     source_version: str = "Ontario MTH1W 2021",
     code_prefix: str = "MTH1W",
     front_matter_pages: int = 59,
+    strand_titles: dict[str, str] | None = None,
 ) -> tuple[list[dict], dict]:
-    """Parse the Ontario Grade 9 Mathematics (MTH1W) curriculum PDF.
+    """Parse an Ontario "Overall and Specific Expectations" curriculum PDF.
+
+    Defaults are tuned for the Grade 9 Mathematics (MTH1W) document, but the
+    parser is layout-compatible with other Ontario expectations PDFs (e.g.
+    English ENL1W). Pass ``front_matter_pages``, ``code_prefix``, ``subject``,
+    ``grade``, ``source_version``, and ``strand_titles`` to redirect it at a
+    different document.
 
     Returns ``(records, summary)`` where ``records`` is a list of standard
     dicts ready for seed-SQL emission and ``summary`` is per-strand counts
     and skipped-page info for logging.
     """
+    if strand_titles is None:
+        strand_titles = ONTARIO_MTH1W_STRAND_TITLES
     records: dict[str, dict] = {}  # later occurrence wins (real defs come after sample-tasks index)
     pages_processed = 0
 
@@ -195,7 +214,7 @@ def parse_ontario_pdf(
     for code in sorted(records, key=_sort_key):
         r = records[code]
         strand_letter = _strand_for(code)
-        strand_label = f"Strand {strand_letter}: {ONTARIO_STRAND_TITLES.get(strand_letter, '')}".strip(": ").strip()
+        strand_label = f"Strand {strand_letter}: {strand_titles.get(strand_letter, '')}".strip(": ").strip()
         if r["strand_part"]:
             strand = f"{strand_label} — {r['strand_part']}"
         else:
@@ -282,12 +301,29 @@ def write_seed_sql(records: Iterable[dict], path: str = SEED_PATH) -> int:
 # ---------------------------------------------------------------------------
 
 def _parser_for(pdf_path: str):
-    """Pick a parser based on the filename. Today we only ship the Ontario
-    MTH1W parser; future PDFs would dispatch here."""
+    """Pick a parser + per-document defaults based on filename.
+
+    Returns a zero-arg-overridable callable that already binds the right
+    Ontario subject/grade/source/strand-title set. New PDFs can be added
+    here by matching their filename and supplying the right defaults.
+    """
     name = os.path.basename(pdf_path).lower()
-    if "ontario" in name and "mth1w" in name:
-        return parse_ontario_pdf
-    # Fallback to Ontario parser — it's permissive enough for similar layouts.
+
+    if "enl1w" in name or ("english" in name and "ontario" in name):
+        def _enl1w(p, **overrides):
+            kwargs = dict(
+                subject="English",
+                grade="9",
+                source_version="Ontario ENL1W 2023",
+                code_prefix="ENL1W",
+                front_matter_pages=0,
+                strand_titles=ONTARIO_ENL1W_STRAND_TITLES,
+            )
+            kwargs.update(overrides)
+            return parse_ontario_pdf(p, **kwargs)
+        return _enl1w
+
+    # Default: Ontario MTH1W (also a safe fallback for similar layouts).
     return parse_ontario_pdf
 
 

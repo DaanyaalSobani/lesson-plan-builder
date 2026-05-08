@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronRight,
+  FileText,
 } from "lucide-react";
 
 import { Card, CardContent } from "@/components/ui/card";
@@ -34,11 +35,17 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+type SourcePdf = {
+  label: string;
+  filename: string;
+};
+
 type Bucket = {
   subject: string;
   grade: string;
   count: number;
   source_versions: string[];
+  source_pdfs?: SourcePdf[];
   last_ingested: string | null;
 };
 
@@ -389,20 +396,52 @@ export default function CurriculumPage() {
                       <span className="text-sm font-medium text-foreground">
                         {b.count} {b.count === 1 ? "standard" : "standards"}
                       </span>
-                      {b.source_versions.length > 0 && (
-                        <TooltipProvider delayDuration={200}>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span className="text-xs text-muted-foreground cursor-help">
-                                · {b.source_versions.join(", ")}
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p className="text-xs">Source curriculum version(s)</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      )}
+                      {b.source_versions.length > 0 && (() => {
+                        const pdfsByLabel = new Map(
+                          (b.source_pdfs ?? []).map((p) => [p.label, p.filename]),
+                        );
+                        return (
+                          <span className="text-xs text-muted-foreground inline-flex items-center gap-1 flex-wrap">
+                            <span>·</span>
+                            {b.source_versions.map((label, idx) => {
+                              const filename = pdfsByLabel.get(label);
+                              const isLast = idx === b.source_versions.length - 1;
+                              if (filename) {
+                                return (
+                                  <span key={label} className="inline-flex items-center">
+                                    <TooltipProvider delayDuration={200}>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <a
+                                            href={`/lesson-api/curriculum/pdf/${encodeURIComponent(filename)}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="inline-flex items-center gap-1 underline decoration-dotted underline-offset-2 hover:text-foreground"
+                                            data-testid={`link-source-pdf-${b.subject}-${b.grade}-${idx}`}
+                                          >
+                                            <FileText className="w-3 h-3" />
+                                            {label}
+                                          </a>
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                          <p className="text-xs">Open source PDF ({filename})</p>
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    </TooltipProvider>
+                                    {!isLast && <span>,&nbsp;</span>}
+                                  </span>
+                                );
+                              }
+                              return (
+                                <span key={label}>
+                                  {label}{!isLast ? "," : ""}
+                                </span>
+                              );
+                            })}
+                          </span>
+                        );
+                      })()}
                     </div>
                     <span className="text-xs text-muted-foreground hidden sm:inline shrink-0">
                       Ingested {formatTimestamp(b.last_ingested)}
