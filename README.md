@@ -66,7 +66,8 @@ pay off — see [`docs/rag-lite.md`](docs/rag-lite.md).
 ## Run it locally
 
 ```bash
-# 1. Install JS dependencies
+# 1. Clone and install JS dependencies
+git clone <this-repo-url> lesson-plan-generator && cd lesson-plan-generator
 pnpm install
 
 # 2. Install Python dependencies for the backend
