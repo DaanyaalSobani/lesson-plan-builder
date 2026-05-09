@@ -1,298 +1,122 @@
 # Lesson Plan Generator
 
-A full-stack tool that turns a teacher's free-text request ("a 50-minute
-lesson on linear equations for Grade 9") into a standards-aligned lesson
-plan, with every step traceable back to a real curriculum standard. Built
-on top of Claude (Anthropic) with a small SQLite-backed retrieval layer
-that grounds the model in officially ingested curriculum PDFs.
+> A standards-grounded lesson plan generator. Teachers describe what they want
+> to teach; the app returns a full plan with every step traceable to a real
+> Ontario curriculum standard.
+
+![Home page — describe what you want to teach](docs/screenshots/home.jpg)
 
 ---
 
-## Project structure
+## What it does
 
-This is a pnpm monorepo with one Python service and one React app.
+- **Free-text in, structured plan out** — type a request like *"a 50-minute
+  lesson on solving linear equations for Grade 9"* and get back a nine-section
+  lesson plan: objectives, materials, a timed outline, assessment, and
+  differentiation.
+- **Real curriculum citations, verified** — every objective and activity step
+  ends with a `[CODE]` marker that points to an actual Ontario standard. A
+  post-call validator flags any code the model invented.
+- **Swappable model** — Claude (Anthropic), GPT (OpenAI via Replit AI
+  Integrations), or a deterministic offline Mock provider for running with no
+  API key.
+- **Curriculum library + history** — browse every standard the app can cite,
+  download the source PDFs, and revisit any plan you've generated.
+
+## Screenshots
+
+![A generated plan with citation chips](docs/screenshots/generated-plan.jpg)
+*A generated plan, grouped by section, with citation chips that jump to where each standard is used.*
+
+![Curriculum library](docs/screenshots/curriculum-library.jpg)
+*The curriculum library — every standard the lesson planner can cite, grouped by subject and grade.*
+
+![History sheet](docs/screenshots/history.jpg)
+*The History sheet — every plan you've generated, restorable in one click.*
+
+---
+
+## How the "RAG-lite" grounding works
+
+Most retrieval-augmented projects reach for embeddings and a vector store. This
+one doesn't — and doesn't need to. The curriculum lives in a small SQLite table
+keyed by `(subject, grade)`, so retrieval is a plain `SELECT … WHERE subject =
+? AND grade = ?`. The matching standards are formatted as a `[CODE] strand:
+description` block and pasted directly into the user prompt, and the system
+prompt forbids Claude from citing any code that isn't in that block. After the
+model responds, a regex extracts every `[CODE]` marker and cross-checks it
+against the rows we actually sent — invented codes are surfaced in the UI as
+"unverified" rather than silently shipped. It's RAG without the vector
+overhead, and it works because the retrieval key is fully structured.
+
+For a deeper walkthrough — including when embeddings would actually start to
+pay off — see [`docs/rag-lite.md`](docs/rag-lite.md).
+
+## Tech stack
+
+- **Backend** — FastAPI + SQLite, with a tiny `LLMProvider` interface so
+  models are swappable in one file.
+- **Frontend** — React + Vite + shadcn/ui + TanStack Query, served by Vite's
+  dev server with a `/lesson-api/*` proxy to the backend.
+- **LLMs** — Anthropic Claude and OpenAI GPT via Replit AI Integrations
+  (no API keys to manage in dev), plus an offline Mock provider for tests
+  and demos.
+- **Monorepo** — pnpm workspace with each runnable thing under `artifacts/`.
+
+## Run it locally
+
+```bash
+# 1. Install JS dependencies
+pnpm install
+
+# 2. Install Python dependencies for the backend
+cd artifacts/lesson-plan-api && pip install -r requirements.txt && cd ../..
+
+# 3. Set your Anthropic key (skip this and use the mock provider if you don't have one)
+export ANTHROPIC_API_KEY=sk-ant-...
+
+# 4. Start the two services in two terminals:
+#    - FastAPI backend on :8000
+cd artifacts/lesson-plan-api && uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+#    - Vite frontend (proxies /lesson-api/* to :8000)
+PORT=5173 BASE_PATH=/ pnpm --filter @workspace/lesson-planner run dev
+```
+
+The frontend's `vite.config.ts` reads `PORT` and `BASE_PATH` from the
+environment so the same artifact can be served behind any path prefix. On
+Replit, the workflows set these automatically; outside Replit, pass them
+inline as shown above (or put them in a `.env`).
+
+**No API key?** Pick **Mock (offline)** in the model dropdown — it returns a
+deterministic, fully-formed nine-section plan with real `[CODE]` citations
+drawn from the curriculum DB, with zero network calls.
+
+## Project structure
 
 ```
 .
 ├── artifacts/
-│   ├── lesson-plan-api/         # FastAPI backend (Python) — the brain
-│   │   ├── main.py              # HTTP routes (/generate, /history,
-│   │   │                          /curriculum/summary, /curriculum/standards,
-│   │   │                          /curriculum/pdf/{filename})
-│   │   ├── retrieval.py         # SQL lookup: subject+grade -> curriculum rows
-│   │   ├── prompt_builder.py    # Assembles the system + user prompts
-│   │   ├── prompts/
-│   │   │   └── lesson_plan.txt  # The system prompt template (editable
-│   │   │                          without restarting the server)
-│   │   ├── providers/
-│   │   │   ├── base.py          # LLMProvider interface
-│   │   │   └── anthropic_provider.py
-│   │   ├── ingest.py            # PDF parser + seed-SQL generator
-│   │   ├── curriculum_pdfs/     # Source PDFs (Ontario MTH1W, ENL1W, …)
-│   │   ├── db/
-│   │   │   ├── schema.sql
-│   │   │   ├── seed_curriculum.sql   # Generated by ingest.py
-│   │   │   └── migrations/      # Numbered, append-only SQL migrations
-│   │   ├── db.py                # SQLite init / migrations / queries
-│   │   ├── curriculum.db        # The actual SQLite database
-│   │   └── tests/               # Pytest smoke tests
-│   │
-│   ├── lesson-planner/          # React + Vite frontend
-│   │   └── src/
-│   │       ├── pages/
-│   │       │   ├── home.tsx        # Generate form, plan view, history
-│   │       │   └── curriculum.tsx  # Curriculum Library (browse + PDF links)
-│   │       └── components/ui/      # shadcn/ui primitives
-│   │
-│   ├── api-server/              # Workspace API (unrelated to lesson plans)
-│   └── mockup-sandbox/          # Component preview server (design only)
-│
-├── lib/                         # Shared workspace packages
-├── pnpm-workspace.yaml
-└── replit.md                    # Project notes + user preferences
+│   ├── lesson-plan-api/   # FastAPI backend — prompt assembly, retrieval, LLM provider, SQLite
+│   └── lesson-planner/    # React + Vite frontend — generate form, plan view, curriculum library
+├── docs/
+│   ├── architecture.md    # Full request flow, prompt construction, ingestion, providers
+│   ├── rag-lite.md        # Why this project doesn't use embeddings (and when it should)
+│   └── screenshots/       # Images used in this README
+└── pnpm-workspace.yaml
 ```
 
-The two services talk over HTTP. The frontend dev server proxies anything
-under `/lesson-api/*` to the FastAPI backend on port 8000 (see
-`artifacts/lesson-planner/vite.config.ts`).
+For the annotated full tree and a line-by-line walkthrough of how a request
+flows from the React form through the prompt builder to Claude and back, see
+[`docs/architecture.md`](docs/architecture.md).
 
-### Request flow
+## Further reading
 
-```
-Teacher → React form → POST /lesson-api/generate
-                          → FastAPI /generate
-                              → retrieval.get_curriculum(subject, grade)   [SQLite]
-                              → (optional) narrow to selected_standard_codes
-                              → prompt_builder.build_prompt(...)
-                              → AnthropicProvider.generate(system, user)   [Claude]
-                              → _validate_codes(response, curriculum_rows)
-                              → save_lesson_plan(...)                      [SQLite]
-                          ← GenerateResponse { lesson_plan, citations,
-                                               considered_standards,
-                                               standards_were_narrowed }
-```
-
----
-
-## How the prompt is constructed
-
-There are exactly two strings sent to Claude per request: a `system`
-prompt and a `user` prompt. They are assembled in
-`artifacts/lesson-plan-api/prompt_builder.py`.
-
-### 1. The system prompt
-
-Loaded verbatim from `prompts/lesson_plan.txt` with a `{tone}` placeholder
-filled in. The file is read on every request, so editing it takes effect
-immediately — no restart needed.
-
-It tells Claude:
-
-- **Role** — "expert curriculum designer helping K-12 teachers".
-- **Quality bar** — explicit alignment, learning objectives, materials,
-  step-by-step activities, scoped to one 45–60 minute period, age-
-  appropriate language.
-- **Citation rules** (the critical part) —
-  > Every learning objective, every activity step, and every assessment
-  > item MUST end with one or more citation markers in the form `[CODE]`,
-  > where CODE is a standard code copied EXACTLY from the curriculum
-  > standards block in the user prompt. … Do NOT invent, paraphrase,
-  > abbreviate, or guess codes. If no listed standard fits, omit the
-  > citation rather than fabricate one.
-- **Output format** — a fixed nine-section structure (Title, Grade &
-  Subject, Standards Addressed, Learning Objectives, Materials, Lesson
-  Outline with five timed sub-sections, Assessment, Differentiation,
-  References).
-- **Tone** — interpolated (currently "professional and encouraging").
-
-### 2. The user prompt
-
-Built dynamically in `build_prompt(...)`:
-
-```python
-user_prompt = f"""\
-Subject: {subject}
-Grade: {grade}
-
-Relevant curriculum standards:
-{standards_block}
-
-You MUST only cite codes from the list above, copied verbatim inside `[CODE]` markers. Do not invent, paraphrase, or guess codes — if no listed standard fits a particular item, omit the citation rather than fabricate one.
-
-<teacher_request>
-{teacher_request.strip()}
-</teacher_request>
-
-Please generate a complete lesson plan following the format described in your instructions."""
-```
-
-The `standards_block` is the **retrieval result**: every row in the
-`curriculum` table that matches `(subject, grade)`, formatted one per
-line as:
-
-```
-  [STANDARD_CODE] Strand label: full description text (source: Ontario MTH1W 2021)
-```
-
-Where the rows come from depends on the request:
-
-- Default — every standard for the chosen subject + grade
-  (`retrieval.get_curriculum`).
-- If the teacher used "Choose standards" on the form,
-  `selected_standard_codes` filters that set down to the chosen subset
-  (and the response sets `standards_were_narrowed=true` so the saved
-  plan can show a "Narrowed to N selected" badge).
-
-There is **no embedding search and no RAG over text chunks** — retrieval
-is a plain SQL `WHERE subject = ? AND grade = ?`. The "groundedness" comes
-from the standards block being the only place Claude can find valid
-citation codes, and from a post-call validator that flags any `[CODE]`
-the model invented.
-
-### 3. What actually goes over the wire
-
-`AnthropicProvider.generate` calls the Messages API:
-
-```python
-self._client.messages.create(
-    model="claude-sonnet-4-6",
-    max_tokens=2048,
-    system=system_prompt,           # the lesson_plan.txt template
-    messages=[{"role": "user",
-               "content": user_prompt}],   # the f-string above
-)
-```
-
-A real example for "Math, Grade 9, lesson on solving linear equations":
-
-```
-SYSTEM:
-  You are an expert curriculum designer helping K-12 teachers create
-  effective, standards-aligned lesson plans.
-
-  Your lesson plans should:
-  - Be clearly structured and easy to follow
-  - Align explicitly with the provided curriculum standards
-  ... (full template, ~30 lines) ...
-
-  Tone: professional and encouraging
-
-USER:
-  Subject: Math
-  Grade: 9
-
-  Relevant curriculum standards:
-    [MTH1W.AA1] Strand AA: Social-Emotional Learning Skills…: throughout
-        this course, students will apply… (source: Ontario MTH1W 2021)
-    [MTH1W.A1] Strand A: Mathematical Thinking…: apply the mathematical
-        processes to develop a conceptual understanding of, and procedural
-        fluency with, the mathematics they are learning
-        (source: Ontario MTH1W 2021)
-    [MTH1W.B1.1] Strand B: Number — Development and Use of Numbers:
-        research a number concept to tell a story about its development
-        and use in a specific culture, and describe its relevance in a
-        current context (source: Ontario MTH1W 2021)
-    ... (one line per matching standard — 57 lines for MTH1W) ...
-
-  You MUST only cite codes from the list above, copied verbatim inside
-  `[CODE]` markers. Do not invent, paraphrase, or guess codes — if no
-  listed standard fits a particular item, omit the citation rather than
-  fabricate one.
-
-  <teacher_request>
-  Build a 50-minute lesson on solving one-variable linear equations,
-  with a hook, guided practice, and an exit ticket.
-  </teacher_request>
-
-  Please generate a complete lesson plan following the format described
-  in your instructions.
-```
-
-That's the entire payload — no tools, no function calling, no system
-messages beyond the template, no chat history. Each `/generate` request
-is a fresh, single-turn call.
-
-### 4. After the response
-
-Claude returns a single text block. Two things happen with it before the
-user sees it:
-
-1. **Citation validation** (`main.py: _validate_codes`) — every `[CODE]`
-   marker in the response is extracted via regex and cross-referenced
-   against the `standards_block` we sent in. Codes found in the block
-   are returned as `Citation(found_in_curriculum=True)`. Codes not found
-   are flagged as hallucinations (logged as a warning and surfaced in the
-   UI) but the plan is still returned so the teacher can see what
-   happened.
-2. **Persistence** (`db.save_lesson_plan`) — the plan, the parsed
-   citations, the full list of standards we actually showed Claude
-   (`considered_standards`), and the `standards_were_narrowed` flag are
-   all written to SQLite so the History view can re-render the plan
-   exactly as it was generated.
-
-### Swapping the LLM
-
-`providers/base.py` defines a tiny `LLMProvider.generate(system, user)`
-interface. To use a different model, drop a new file in `providers/`,
-add a branch in `main._create_provider`, and set the `PROVIDER` env var.
-Nothing else changes — the prompts are model-agnostic.
-
-Two providers ship today:
-
-| `PROVIDER` value | Implementation | Notes |
-|------------------|----------------|-------|
-| `anthropic` (default) | `providers/anthropic_provider.py` | Calls Claude. Requires `ANTHROPIC_API_KEY`. |
-| `mock`           | `providers/mock_provider.py`      | Deterministic, offline. No API key needed. Returns a fully-formed nine-section plan with `[CODE]` markers parsed from the standards block in the user prompt, so the citation validator and Considered Standards panel both light up. Used by `tests/test_mock_provider.py` and handy for running the app locally without a key. |
-
-```bash
-# Run the backend with no Anthropic key, no network calls:
-PROVIDER=mock uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-```
-
----
-
-## Curriculum ingestion
-
-`ingest.py` parses Ontario curriculum PDFs from `curriculum_pdfs/` into
-the `curriculum` SQLite table. Today it ships with two sources:
-
-| File                                  | Subject | Grade | Standards |
-|---------------------------------------|---------|-------|-----------|
-| `ontario_math_9_mth1w_2021.pdf`       | Math    | 9     | 57        |
-| `ontario_english_9_enl1w_2023.pdf`    | English | 9     | 71        |
-
-To ingest a new PDF:
-
-```bash
-cd artifacts/lesson-plan-api
-# 1. Drop the PDF into curriculum_pdfs/
-# 2. (If the layout differs) add a parser branch in ingest._parser_for
-# 3. Add the source label -> filename mapping in main.SOURCE_PDF_FILENAMES
-python ingest.py --all-pdfs --rebuild-db
-```
-
-Each source is then downloadable from the Curriculum Library page via
-`/lesson-api/curriculum/pdf/<filename>`.
-
----
-
-## Running locally
-
-The Replit workflows handle this automatically, but for reference:
-
-```bash
-# Backend (port 8000)
-cd artifacts/lesson-plan-api
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-
-# Frontend (Vite dev server)
-pnpm --filter @workspace/lesson-planner run dev
-```
-
-The only required secret is `ANTHROPIC_API_KEY`.
-
-Tests:
-
-```bash
-cd artifacts/lesson-plan-api && python -m pytest tests/ -q
-```
+- [`docs/architecture.md`](docs/architecture.md) — full annotated tree, request
+  flow, prompt construction, citation validation, curriculum ingestion, and
+  how to swap the LLM.
+- [`docs/rag-lite.md`](docs/rag-lite.md) — why curriculum grounding here is a
+  SQL lookup, not a vector search, and the conditions under which embeddings
+  would start to earn their keep.
+- [`artifacts/lesson-plan-api/README.md`](artifacts/lesson-plan-api/README.md)
+  — backend-only setup, endpoint reference, and provider plug-in instructions.
